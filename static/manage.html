@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>系统管理</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260513-2" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260514-5" />
   </head>
   <body>
     <main class="app">
@@ -12,19 +12,39 @@
         <header class="topbar">
           <div>
             <h1>系统管理</h1>
-            <p>账户采集与校核数据统计</p>
+            <p>账户权限、修改建议与样本数据管理</p>
           </div>
           <div class="actions">
             <a class="button secondary" href="/app">返回处理页</a>
           </div>
         </header>
         <section class="admin-card">
-          <h2>账户统计</h2>
+          <h2>账户信息</h2>
           <table class="admin-table">
             <thead>
-              <tr><th>账户名称</th><th>采集数据数量</th><th>校核数据数量</th></tr>
+              <tr><th>账户名称</th><th>采集数据数量</th><th>校核数据数量</th><th>权限</th></tr>
             </thead>
             <tbody id="statsBody"></tbody>
+          </table>
+        </section>
+
+        <section class="admin-card">
+          <h2>数据管理</h2>
+          <table class="admin-table data-table">
+            <thead>
+              <tr><th>数据处理ID</th><th>数据来源</th><th>题目章节</th><th>题目编号</th><th>账户名</th><th>生成时间</th><th>校核结果</th><th>操作</th></tr>
+            </thead>
+            <tbody id="finalItemsBody"></tbody>
+          </table>
+        </section>
+
+        <section class="admin-card">
+          <h2>样本集状态</h2>
+          <table class="admin-table data-table">
+            <thead>
+              <tr><th>数据来源</th><th>题目章节数</th><th>题目数量</th></tr>
+            </thead>
+            <tbody id="sampleStatusBody"></tbody>
           </table>
         </section>
 
@@ -46,6 +66,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/manage.js?v=20260513-2"></script>
+    <script src="/static/manage.js?v=20260514-5"></script>
   </body>
 </html>

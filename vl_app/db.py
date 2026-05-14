@@ -34,7 +34,8 @@ def init_db():
                 sid text primary key,
                 username text not null,
                 created_at integer not null,
-                expires_at integer not null
+                expires_at integer not null,
+                last_seen integer not null default 0
             );
             create table if not exists jobs (
                 job_id text primary key,
@@ -64,8 +65,24 @@ def init_db():
                 content text not null,
                 created_at text not null
             );
+            create table if not exists final_items (
+                id integer primary key autoincrement,
+                job_id text not null,
+                data_source text not null,
+                chapter text not null,
+                qid text not null,
+                username text not null,
+                generated_at text not null,
+                temp_dir text not null,
+                status text not null default 'pending',
+                saved_dir text,
+                updated_at text not null
+            );
             """
         )
+        columns = {row["name"] for row in conn.execute("pragma table_info(sessions)").fetchall()}
+        if "last_seen" not in columns:
+            conn.execute("alter table sessions add column last_seen integer not null default 0")
         conn.execute(
             "insert or ignore into settings(key, value, updated_at) values ('register_code', ?, ?)",
             (REGISTER_CODE, now_text()),
@@ -184,13 +201,13 @@ def list_suggestions(limit=200):
     return [dict(row) for row in rows]
 
 
-def create_session(username, ttl_seconds=60 * 60 * 24 * 7):
+def create_session(username, ttl_seconds=20 * 60):
     sid = secrets.token_urlsafe(32)
     now = int(time.time())
     with connect() as conn:
         conn.execute(
-            "insert into sessions(sid, username, created_at, expires_at) values (?, ?, ?, ?)",
-            (sid, username, now, now + ttl_seconds),
+            "insert into sessions(sid, username, created_at, expires_at, last_seen) values (?, ?, ?, ?, ?)",
+            (sid, username, now, now + ttl_seconds, now),
         )
     return sid
 
@@ -216,7 +233,25 @@ def user_for_session(sid):
             """,
             (sid, now),
         ).fetchone()
+        if row:
+            conn.execute("update sessions set last_seen = ?, expires_at = ? where sid = ?", (now, now + 20 * 60, sid))
     return dict(row) if row else None
+
+
+def pop_expired_session_username(sid):
+    if not sid:
+        return None
+    now = int(time.time())
+    with connect() as conn:
+        row = conn.execute("select username from sessions where sid = ? and expires_at <= ?", (sid, now)).fetchone()
+        if row:
+            conn.execute("delete from sessions where sid = ?", (sid,))
+    return row["username"] if row else None
+
+
+def cleanup_expired_sessions():
+    with connect() as conn:
+        conn.execute("delete from sessions where expires_at <= ?", (int(time.time()),))
 
 
 def upsert_job(job_id, owner, status):
@@ -261,6 +296,11 @@ def list_users():
     return [dict(row) for row in rows]
 
 
+def update_user_role(username, role):
+    with connect() as conn:
+        conn.execute("update users set role = ? where username = ? and username != 'admin'", (role, username))
+
+
 def enqueue_sqlite(job_id, payload):
     with connect() as conn:
         conn.execute(
@@ -290,4 +330,118 @@ def finish_sqlite_task(task_id, status):
         conn.execute(
             "update task_queue set status = ?, finished_at = ? where id = ?",
             (status, int(time.time()), task_id),
+        )
+
+
+def add_final_item(job_id, data_source, chapter, qid, username, generated_at, temp_dir):
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into final_items(job_id, data_source, chapter, qid, username, generated_at, temp_dir, status, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (job_id, data_source, chapter, qid, username, generated_at, temp_dir, now_text()),
+        )
+
+
+def delete_pending_final_items(job_id):
+    with connect() as conn:
+        conn.execute("delete from final_items where job_id = ? and status = 'pending'", (job_id,))
+
+
+def list_final_items(status="pending"):
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            select id, job_id, data_source, chapter, qid, username, generated_at, temp_dir, status, saved_dir
+            from final_items
+            where status = ?
+            order by id desc
+            """,
+            (status,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_final_jobs(status="pending"):
+    items = list_final_items(status)
+    grouped = {}
+    for item in items:
+        job = grouped.setdefault(
+            item["job_id"],
+            {
+                "job_id": item["job_id"],
+                "data_source": item["data_source"],
+                "chapters": [],
+                "qids": [],
+                "username": item["username"],
+                "generated_at": item["generated_at"],
+                "status": item["status"],
+            },
+        )
+        if item["chapter"] not in job["chapters"]:
+            job["chapters"].append(item["chapter"])
+        if item["qid"] not in job["qids"]:
+            job["qids"].append(item["qid"])
+    return list(grouped.values())
+
+
+def list_final_items_by_job(job_id, status="pending"):
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            select id, job_id, data_source, chapter, qid, username, generated_at, temp_dir, status, saved_dir
+            from final_items
+            where job_id = ? and status = ?
+            order by id
+            """,
+            (job_id, status),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_final_item(item_id):
+    with connect() as conn:
+        row = conn.execute("select * from final_items where id = ?", (item_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_final_item(item_id, data_source, qid, username, generated_at):
+    chapter = str(qid).split("-", 1)[0] if "-" in str(qid) else str(qid)
+    with connect() as conn:
+        conn.execute(
+            """
+            update final_items
+            set data_source = ?, chapter = ?, qid = ?, username = ?, generated_at = ?, updated_at = ?
+            where id = ? and status = 'pending'
+            """,
+            (data_source, chapter, qid, username, generated_at, now_text(), item_id),
+        )
+
+
+def update_final_job(job_id, data_source, chapter, username):
+    with connect() as conn:
+        conn.execute(
+            """
+            update final_items
+            set data_source = ?, chapter = ?, username = ?, updated_at = ?
+            where job_id = ? and status = 'pending'
+            """,
+            (data_source, chapter, username, now_text(), job_id),
+        )
+
+
+def mark_final_item(item_id, status, saved_dir=""):
+    with connect() as conn:
+        conn.execute(
+            "update final_items set status = ?, saved_dir = ?, updated_at = ? where id = ?",
+            (status, saved_dir, now_text(), item_id),
+        )
+
+
+def mark_final_job(job_id, status, saved_dir=""):
+    with connect() as conn:
+        conn.execute(
+            "update final_items set status = ?, saved_dir = ?, updated_at = ? where job_id = ? and status = 'pending'",
+            (status, saved_dir, now_text(), job_id),
         )

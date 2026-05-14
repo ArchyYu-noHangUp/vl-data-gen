@@ -910,7 +910,7 @@ def save_replacement_image(file_item, output_dir, folder, qid, index, field, cur
     return f"{folder}/{filename}"
 
 
-def save_result_edits(job_id, items, files_by_key):
+def save_result_edits(job_id, items, files_by_key, make_package=True):
     job_dir = RUNS / job_id
     output_dir = job_dir / OUTPUT_NAME
     md_path = output_dir / "test_data.md"
@@ -963,10 +963,16 @@ def save_result_edits(job_id, items, files_by_key):
     md_path.write_text(build_markdown(updated), encoding="utf-8")
     sources = [item.get("source", "").strip() for item in updated.values() if item.get("source", "").strip()]
     package_source = sources[0] if sources else "数据来源"
-    zip_path, package_dir = make_final_package(job_id, updated, package_source)
+    zip_path = None
+    package_dir = None
+    if make_package:
+        zip_path, package_dir = make_final_package(job_id, updated, package_source)
     status = job_status_payload(job_id)
     logs = status.get("logs", []) if status else []
-    logs = logs + [f"{time.strftime('%H:%M:%S')} 人工校核保存完成，已生成 {package_dir.name}.zip"]
+    if make_package and package_dir:
+        logs = logs + [f"{time.strftime('%H:%M:%S')} 人工校核保存完成，已生成 {package_dir.name}.zip"]
+    else:
+        logs = logs + [f"{time.strftime('%H:%M:%S')} 人工校核保存完成，尚未生成最终 zip"]
     write_process_log(job_dir, logs)
     meta = read_job_meta(job_id)
     meta["reviewed_count"] = len(updated)
@@ -979,7 +985,7 @@ def save_result_edits(job_id, items, files_by_key):
         "question_count": len(updated),
         "figure_count": sum(len(v.get("figures", [])) for v in updated.values()),
         "answer_count": sum(1 for v in updated.values() if v.get("answer", "").strip()),
-        "download_url": f"/download/{job_id}",
+        "download_url": f"/download/{job_id}" if make_package else "",
         "markdown_url": f"/file/{job_id}/test_data.md",
         "result_url": f"/static/result.html?job_id={job_id}",
         "logs": logs,
@@ -1216,9 +1222,8 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
                 item["source"] = data_source
         md_path = output_dir / "test_data.md"
         md_path.write_text(build_markdown(records), encoding="utf-8")
-        zip_path, package_dir = make_final_package(job_id, records, data_source or "数据来源")
         append_log(logs, f"生成 Markdown：{md_path.relative_to(job_dir)}")
-        append_log(logs, f"生成 zip：{zip_path.relative_to(job_dir)}")
+        append_log(logs, "模型处理完成，等待人工校核")
     except Exception as exc:
         append_log(logs, f"任务失败：{exc}")
         write_process_log(job_dir, logs)

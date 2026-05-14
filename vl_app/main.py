@@ -1,6 +1,8 @@
 import base64
 import json
 import mimetypes
+import re
+import shutil
 import time
 import traceback
 import uuid
@@ -21,6 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
 RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
+TEMP_FINALS = Path("/tmp/vl-data-gen-final")
+SAMPLE_DATASET = ROOT / "sample_dataset"
+APP_VERSION = "0.2.1"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -31,11 +36,21 @@ if PIC_FILES.exists():
 @app.on_event("startup")
 def startup():
     RUNS.mkdir(exist_ok=True)
+    TEMP_FINALS.mkdir(parents=True, exist_ok=True)
+    SAMPLE_DATASET.mkdir(parents=True, exist_ok=True)
     db.init_db()
+    db.cleanup_expired_sessions()
 
 
 def current_user(request: Request):
-    return db.user_for_session(request.cookies.get("sid", ""))
+    sid = request.cookies.get("sid", "")
+    user = db.user_for_session(sid)
+    if user:
+        return user
+    expired_username = db.pop_expired_session_username(sid)
+    if expired_username:
+        cleanup_user_intermediate(expired_username)
+    return None
 
 
 def require_user(request: Request):
@@ -54,6 +69,131 @@ def can_access(user, job_id):
     if job:
         return job.get("owner") == user.get("username")
     return legacy.read_job_meta(job_id).get("owner") == user.get("username")
+
+
+def require_admin(request: Request):
+    user = require_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
+
+
+def safe_folder_name(name):
+    return legacy.safe_folder_name(name)
+
+
+def question_chapter(qid):
+    text = str(qid or "").strip()
+    return text.split("-", 1)[0] if "-" in text else text
+
+
+def status_counts(job_id):
+    md_path = RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md"
+    return {
+        "question_count": legacy.count_markdown_questions(md_path),
+        "figure_count": len(list((RUNS / job_id / legacy.OUTPUT_NAME / legacy.FIG_DIR_NAME).glob("*")))
+        if (RUNS / job_id / legacy.OUTPUT_NAME / legacy.FIG_DIR_NAME).exists()
+        else 0,
+        "answer_count": legacy.count_markdown_answers(md_path),
+        "markdown_url": f"/file/{job_id}/test_data.md",
+        "result_url": f"/static/result.html?job_id={job_id}",
+    }
+
+
+def copy_first_figure(job_id, item, target_dir):
+    output_dir = RUNS / job_id / legacy.OUTPUT_NAME
+    figures = [fig for fig in item.get("figures", []) if fig]
+    if not figures:
+        return
+    source = (output_dir / figures[0]).resolve()
+    try:
+        source.relative_to(output_dir.resolve())
+    except ValueError:
+        return
+    if source.exists():
+        shutil.copyfile(source, target_dir / "figure.jpg")
+
+
+def replace_markdown_source(md_text, source):
+    return re.sub(r"(#（六）题目来源\n)(.*?)(\n?$)", rf"\1{source}\3", md_text, flags=re.S)
+
+
+def create_final_records(job_id, username):
+    md_path = RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md"
+    if not md_path.exists():
+        raise FileNotFoundError("test_data.md 不存在")
+    records = legacy.parse_markdown_records(md_path.read_text(encoding="utf-8"))
+    generated_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    temp_root = TEMP_FINALS / job_id
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    db.delete_pending_final_items(job_id)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    for qid in sorted(records, key=legacy.question_sort_key):
+        item = records[qid]
+        data_source = item.get("source", "").strip() or "数据来源"
+        chapter = question_chapter(qid)
+        item_dir = temp_root / safe_folder_name(qid)
+        item_dir.mkdir(parents=True, exist_ok=True)
+        (item_dir / "data.md").write_text(legacy.question_markdown(item), encoding="utf-8")
+        copy_first_figure(job_id, item, item_dir)
+        db.add_final_item(job_id, data_source, chapter, qid, username, generated_at, str(item_dir))
+    update_job_meta(job_id, {"final_completed": True, "final_completed_at": generated_at})
+    return generated_at
+
+
+def make_review_zip(job_id):
+    temp_root = TEMP_FINALS / job_id
+    if not temp_root.exists():
+        raise FileNotFoundError("最终结果不存在，请先完成校核")
+    zip_path = RUNS / job_id / f"{legacy.OUTPUT_NAME}.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+    with legacy.zipfile.ZipFile(zip_path, "w", compression=legacy.zipfile.ZIP_DEFLATED) as zf:
+        for path in temp_root.rglob("*"):
+            if path.is_file():
+                zf.write(path, path.relative_to(temp_root.parent))
+    return zip_path
+
+
+def cleanup_job_artifacts(job_id):
+    shutil.rmtree(TEMP_FINALS / job_id, ignore_errors=True)
+    shutil.rmtree(RUNS / job_id, ignore_errors=True)
+
+
+def sample_dataset_status():
+    items = []
+    if not SAMPLE_DATASET.exists():
+        return items
+    for source_dir in sorted([path for path in SAMPLE_DATASET.iterdir() if path.is_dir()], key=lambda p: p.name):
+        chapters = [path for path in source_dir.iterdir() if path.is_dir()]
+        q_count = 0
+        chapter_names = []
+        for chapter_dir in sorted(chapters, key=lambda p: legacy.question_sort_key(p.name)):
+            chapter_names.append(chapter_dir.name)
+            q_count += sum(1 for child in chapter_dir.iterdir() if child.is_dir())
+        items.append(
+            {
+                "data_source": source_dir.name,
+                "chapter_count": len(chapter_names),
+                "chapters": chapter_names,
+                "question_count": q_count,
+            }
+        )
+    return items
+
+
+def cleanup_user_intermediate(username):
+    for job_dir in RUNS.iterdir() if RUNS.exists() else []:
+        if not job_dir.is_dir():
+            continue
+        meta = legacy.read_job_meta(job_dir.name)
+        if meta.get("owner") != username or meta.get("final_completed"):
+            continue
+        job = db.get_job(job_dir.name)
+        if job and job.get("status") in {"queued", "running"}:
+            continue
+        shutil.rmtree(job_dir, ignore_errors=True)
 
 
 def update_job_meta(job_id, data):
@@ -147,14 +287,15 @@ def register_page():
 
 @app.get("/manage")
 def manage_page(request: Request):
-    user = require_user(request)
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
+    require_admin(request)
     return html_file("manage.html")
 
 
 @app.get("/logout")
 def logout(request: Request):
+    user = current_user(request)
+    if user:
+        cleanup_user_intermediate(user["username"])
     db.delete_session(request.cookies.get("sid", ""))
     response = RedirectResponse("/", status_code=302)
     clear_sid_cookie(response)
@@ -203,6 +344,9 @@ async def api_register(payload: dict):
 
 @app.post("/api/logout")
 def api_logout(request: Request):
+    user = current_user(request)
+    if user:
+        cleanup_user_intermediate(user["username"])
     db.delete_session(request.cookies.get("sid", ""))
     response = JSONResponse({"ok": True})
     clear_sid_cookie(response)
@@ -211,7 +355,7 @@ def api_logout(request: Request):
 
 @app.get("/api/me")
 def api_me(request: Request):
-    return {"user": current_user(request)}
+    return {"user": current_user(request), "version": APP_VERSION}
 
 
 @app.get("/api/default-config")
@@ -305,6 +449,8 @@ def status(job_id: str, request: Request):
         return JSONResponse({"error": "任务不存在"}, status_code=404)
     if job and payload.get("status") != "completed":
         payload["status"] = "processing" if job["status"] in {"queued", "running"} else job["status"]
+    if (RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md").exists():
+        payload.update(status_counts(job_id))
     return payload
 
 
@@ -319,9 +465,7 @@ def latest_result(request: Request):
 
 @app.get("/api/admin/stats")
 def admin_stats(request: Request):
-    user = require_user(request)
-    if user.get("role") != "admin":
-        return JSONResponse({"error": "需要管理员权限"}, status_code=403)
+    require_admin(request)
     stats = {item["username"]: {"username": item["username"], "collected": 0, "reviewed": 0} for item in db.list_users()}
     for job_dir in RUNS.iterdir() if RUNS.exists() else []:
         if not job_dir.is_dir():
@@ -336,7 +480,25 @@ def admin_stats(request: Request):
         stats.setdefault(owner, {"username": owner, "collected": 0, "reviewed": 0})
         stats[owner]["collected"] += legacy.count_markdown_questions(job_dir / legacy.OUTPUT_NAME / "test_data.md")
         stats[owner]["reviewed"] += int(meta.get("reviewed_count") or 0)
-    return {"users": list(stats.values())}
+    roles = {item["username"]: item["role"] for item in db.list_users()}
+    users = []
+    for item in stats.values():
+        item["role"] = roles.get(item["username"], "user")
+        users.append(item)
+    return {"users": users}
+
+
+@app.post("/api/admin/users/role")
+async def update_user_role(request: Request, payload: dict):
+    require_admin(request)
+    username = str(payload.get("username", "")).strip()
+    role = str(payload.get("role", "")).strip()
+    if username == "admin":
+        return JSONResponse({"error": "内置 admin 账户权限不可修改"}, status_code=400)
+    if role not in {"admin", "user"}:
+        return JSONResponse({"error": "权限值无效"}, status_code=400)
+    db.update_user_role(username, role)
+    return {"ok": True}
 
 
 @app.post("/api/suggestions")
@@ -351,17 +513,13 @@ async def create_suggestion(request: Request, payload: dict):
 
 @app.get("/api/admin/settings")
 def admin_settings(request: Request):
-    user = require_user(request)
-    if user.get("role") != "admin":
-        return JSONResponse({"error": "需要管理员权限"}, status_code=403)
+    require_admin(request)
     return {"register_code": db.get_register_code()}
 
 
 @app.post("/api/admin/settings")
 async def update_admin_settings(request: Request, payload: dict):
-    user = require_user(request)
-    if user.get("role") != "admin":
-        return JSONResponse({"error": "需要管理员权限"}, status_code=403)
+    require_admin(request)
     register_code = str(payload.get("register_code", "")).strip()
     if not register_code:
         return JSONResponse({"error": "注册码不能为空"}, status_code=400)
@@ -371,10 +529,125 @@ async def update_admin_settings(request: Request, payload: dict):
 
 @app.get("/api/admin/suggestions")
 def admin_suggestions(request: Request):
-    user = require_user(request)
-    if user.get("role") != "admin":
-        return JSONResponse({"error": "需要管理员权限"}, status_code=403)
+    require_admin(request)
     return {"suggestions": db.list_suggestions()}
+
+
+@app.get("/api/admin/final-items")
+def admin_final_items(request: Request):
+    require_admin(request)
+    items = db.list_final_jobs("pending")
+    for item in items:
+        item["chapters"] = sorted(item.get("chapters", []), key=legacy.question_sort_key)
+        item["qids"] = sorted(item.get("qids", []), key=legacy.question_sort_key)
+    return {"items": items}
+
+
+@app.get("/api/admin/sample-status")
+def admin_sample_status(request: Request):
+    require_admin(request)
+    return {"items": sample_dataset_status()}
+
+
+@app.post("/api/admin/final-jobs/{job_id}/update")
+async def admin_update_final_job(job_id: str, request: Request, payload: dict):
+    require_admin(request)
+    items = db.list_final_items_by_job(job_id, "pending")
+    if not items:
+        return JSONResponse({"error": "数据不存在或已处理"}, status_code=404)
+    first = items[0]
+    data_source = str(payload.get("data_source", first["data_source"])).strip() or "数据来源"
+    chapter = str(payload.get("chapter", first["chapter"])).strip()
+    username = str(payload.get("username", first["username"])).strip()
+    if not chapter or not username:
+        return JSONResponse({"error": "题目章节、账户名不能为空"}, status_code=400)
+    db.update_final_job(job_id, data_source, chapter, username)
+    return {"ok": True}
+
+
+@app.post("/api/admin/final-jobs/{job_id}/discard")
+def admin_discard_final_job(job_id: str, request: Request):
+    require_admin(request)
+    items = db.list_final_items_by_job(job_id, "pending")
+    if not items:
+        return JSONResponse({"error": "数据不存在或已处理"}, status_code=404)
+    db.mark_final_job(job_id, "discarded")
+    cleanup_job_artifacts(job_id)
+    return {"ok": True}
+
+
+@app.post("/api/admin/final-jobs/{job_id}/save")
+def admin_save_final_job(job_id: str, request: Request):
+    require_admin(request)
+    items = db.list_final_items_by_job(job_id, "pending")
+    if not items:
+        return JSONResponse({"error": "数据不存在或已处理"}, status_code=404)
+    saved_root = ""
+    for item in items:
+        temp_dir = Path(item["temp_dir"])
+        if not temp_dir.exists():
+            continue
+        target = SAMPLE_DATASET / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
+        target.mkdir(parents=True, exist_ok=True)
+        data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
+        if data_text:
+            (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
+        if (temp_dir / "figure.jpg").exists():
+            shutil.copyfile(temp_dir / "figure.jpg", target / "figure.jpg")
+        saved_root = str(target.parent.parent)
+    db.mark_final_job(job_id, "saved", saved_root)
+    cleanup_job_artifacts(job_id)
+    return {"ok": True}
+
+
+@app.post("/api/admin/final-items/{item_id}/update")
+async def admin_update_final_item(item_id: int, request: Request, payload: dict):
+    require_admin(request)
+    item = db.get_final_item(item_id)
+    if not item or item.get("status") != "pending":
+        return JSONResponse({"error": "数据不存在或已处理"}, status_code=404)
+    data_source = str(payload.get("data_source", item["data_source"])).strip() or "数据来源"
+    qid = str(payload.get("qid", item["qid"])).strip()
+    username = str(payload.get("username", item["username"])).strip()
+    generated_at = str(payload.get("generated_at", item["generated_at"])).strip()
+    if not qid or not username or not generated_at:
+        return JSONResponse({"error": "题目编号、账户名、生成时间不能为空"}, status_code=400)
+    db.update_final_item(item_id, data_source, qid, username, generated_at)
+    return {"ok": True}
+
+
+@app.post("/api/admin/final-items/{item_id}/discard")
+def admin_discard_final_item(item_id: int, request: Request):
+    require_admin(request)
+    item = db.get_final_item(item_id)
+    if not item or item.get("status") != "pending":
+        return JSONResponse({"error": "数据不存在或已处理"}, status_code=404)
+    temp_dir = Path(item["temp_dir"])
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+    db.mark_final_item(item_id, "discarded")
+    return {"ok": True}
+
+
+@app.post("/api/admin/final-items/{item_id}/save")
+def admin_save_final_item(item_id: int, request: Request):
+    require_admin(request)
+    item = db.get_final_item(item_id)
+    if not item or item.get("status") != "pending":
+        return JSONResponse({"error": "数据不存在或已处理"}, status_code=404)
+    temp_dir = Path(item["temp_dir"])
+    if not temp_dir.exists():
+        return JSONResponse({"error": "临时结果文件不存在"}, status_code=404)
+    target = SAMPLE_DATASET / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
+    target.mkdir(parents=True, exist_ok=True)
+    data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
+    if data_text:
+        (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
+    if (temp_dir / "figure.jpg").exists():
+        shutil.copyfile(temp_dir / "figure.jpg", target / "figure.jpg")
+    shutil.rmtree(temp_dir)
+    db.mark_final_item(item_id, "saved", str(target))
+    return {"ok": True}
 
 
 @app.get("/download/{job_id}")
@@ -427,13 +700,33 @@ async def save_result(request: Request):
             for key, value in form.multi_items()
             if getattr(value, "filename", None) and getattr(value, "file", None)
         }
-        result = legacy.save_result_edits(job_id, items, files_by_key)
+        result = legacy.save_result_edits(job_id, items, files_by_key, make_package=False)
         db.update_job_status(job_id, "completed", reviewed_count=len(items))
         return result
     except Exception as exc:
         RUNS.mkdir(exist_ok=True)
         with (RUNS / "server-errors.log").open("a", encoding="utf-8") as f:
             f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] FastAPI SaveResult\n{traceback.format_exc()}\n")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/complete-review")
+async def complete_review(request: Request, payload: dict):
+    user = require_user(request)
+    job_id = str(payload.get("job_id", "")).strip()
+    want_download = bool(payload.get("download"))
+    if not job_id:
+        return JSONResponse({"error": "缺少 job_id"}, status_code=400)
+    if not can_access(user, job_id):
+        return JSONResponse({"error": "无权访问该任务"}, status_code=403)
+    try:
+        create_final_records(job_id, user["username"])
+        download_url = ""
+        if want_download:
+            make_review_zip(job_id)
+            download_url = f"/download/{job_id}"
+        return {"ok": True, "download_url": download_url}
+    except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 

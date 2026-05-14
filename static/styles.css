@@ -46,6 +46,19 @@ h1 {
   line-height: 1.25;
 }
 
+.version-badge {
+  display: inline-flex;
+  margin-top: 8px;
+  min-height: 26px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #e3f1eb;
+  color: #0b513d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 h2 {
   font-size: 18px;
   line-height: 1.3;
@@ -209,6 +222,44 @@ button:disabled {
 .admin-table th {
   background: #edf6f2;
   color: #0b513d;
+}
+
+.admin-table input,
+.admin-table select {
+  min-width: 130px;
+}
+
+.data-table {
+  min-width: 980px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row-actions button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.link-button {
+  min-height: auto;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: #176b87;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.job-id-cell {
+  max-width: 180px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
 }
 
 .config {

@@ -8,7 +8,7 @@ async function initUser() {
     window.location.href = "/";
     return;
   }
-  $("userInfo").textContent = `${data.user.username}，上传问题图片与答案图片，自动生成题目文件夹和 zip 包。`;
+  $("userInfo").textContent = `${data.user.username}，上传问题图片与答案图片，自动生成题目文件夹和校核结果。`;
   $("manageLink").hidden = data.user.role !== "admin";
 }
 
@@ -120,8 +120,7 @@ function showResult(data) {
     throw new Error(data.error || "处理失败");
   }
   $("log").textContent += "处理完成。\n";
-  $("summary").textContent = `题目数量：${data.question_count}，题图数量：${data.figure_count}，答案文本数量：${data.answer_count}`;
-  $("downloadLink").href = data.download_url;
+  $("summary").textContent = `数据处理ID：${data.job_id}；题目数量：${data.question_count}，题图数量：${data.figure_count}，答案文本数量：${data.answer_count}`;
   $("resultLink").href = data.result_url;
   $("result").hidden = false;
 }

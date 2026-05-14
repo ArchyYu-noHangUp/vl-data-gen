@@ -1,9 +1,10 @@
 const params = new URLSearchParams(window.location.search);
 const jobId = params.get("job_id");
+const readonly = params.get("readonly") === "1";
 const preview = document.getElementById("preview");
 const meta = document.getElementById("resultMeta");
-const downloadLink = document.getElementById("downloadLink");
 const saveButton = document.getElementById("saveButton");
+const completeButton = document.getElementById("completeButton");
 const chatToggle = document.getElementById("chatToggle");
 const chatPanel = document.getElementById("chatPanel");
 const chatClose = document.getElementById("chatClose");
@@ -344,9 +345,8 @@ async function saveResult() {
       throw new Error(data.error || "保存失败");
     }
 
-    downloadLink.href = data.download_url || `/download/${encodeURIComponent(jobId)}`;
     replacementFiles.clear();
-    meta.textContent = `保存完成：共 ${data.question_count} 道题，题图 ${data.figure_count} 张，答案文本 ${data.answer_count} 条`;
+    meta.textContent = `保存完成：数据处理ID ${jobId}，共 ${data.question_count} 道题，题图 ${data.figure_count} 张，答案文本 ${data.answer_count} 条。尚未生成最终结果`;
     await reloadMarkdown();
   } finally {
     saveButton.disabled = false;
@@ -368,15 +368,51 @@ async function main() {
     return;
   }
 
-  downloadLink.href = `/download/${encodeURIComponent(jobId)}`;
-  saveButton.addEventListener("click", () => {
-    saveResult().catch((err) => {
-      meta.textContent = `错误：${err.message}`;
+  if (readonly) {
+    saveButton.hidden = true;
+    completeButton.hidden = true;
+    document.getElementById("chatAssistant").hidden = true;
+  } else {
+    saveButton.addEventListener("click", () => {
+      saveResult().catch((err) => {
+        meta.textContent = `错误：${err.message}`;
+      });
     });
-  });
-  bindChat();
+    completeButton.addEventListener("click", () => {
+      completeReview().catch((err) => {
+        meta.textContent = `错误：${err.message}`;
+      });
+    });
+    bindChat();
+  }
   await reloadMarkdown();
-  saveButton.disabled = false;
+  if (!readonly) {
+    saveButton.disabled = false;
+    completeButton.disabled = false;
+  }
+}
+
+async function completeReview() {
+  completeButton.disabled = true;
+  meta.textContent = "正在完成校核并生成最终结果...";
+  const wantDownload = window.confirm("是否需要下载 zip 文件？");
+  try {
+    const resp = await fetch("/api/complete-review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: jobId, download: wantDownload }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(formatError(data, "完成校核失败"));
+    }
+    meta.textContent = "完成校核成功，该数据处理ID已形成最终结果";
+    if (wantDownload && data.download_url) {
+      window.location.href = data.download_url;
+    }
+  } finally {
+    completeButton.disabled = false;
+  }
 }
 
 function bindChat() {
@@ -467,4 +503,5 @@ function formatError(data, fallback) {
 main().catch((err) => {
   meta.textContent = `错误：${err.message}`;
   saveButton.disabled = true;
+  completeButton.disabled = true;
 });
