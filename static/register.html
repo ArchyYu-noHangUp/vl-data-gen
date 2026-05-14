@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>注册账户</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260513-2" />
+  </head>
+  <body class="welcome-page">
+    <main class="welcome-shell">
+      <section class="welcome-hero">
+        <h1>电力分析能力评测数据采集与标注系统</h1>
+        <p>注册账户后进入数据采集与标注工作台。</p>
+      </section>
+      <section class="auth-panel">
+        <form id="registerForm" class="auth-form">
+          <label><span>用户名</span><input id="registerUser" autocomplete="username" /></label>
+          <label><span>密码</span><input id="registerPass" type="password" autocomplete="new-password" /></label>
+          <label><span>重复密码</span><input id="registerRepeat" type="password" autocomplete="new-password" /></label>
+          <label><span>注册码</span><input id="registerCode" /></label>
+          <button type="submit">注册并进入系统</button>
+        </form>
+        <a class="register-link" href="/">返回登录</a>
+        <p id="authMessage" class="auth-message"></p>
+      </section>
+    </main>
+    <script src="/static/register.js"></script>
+  </body>
+</html>

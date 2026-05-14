@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>查看结果</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260513-2" />
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [["\\(", "\\)"], ["$", "$"]],
+          displayMath: [["$$", "$$"]],
+        },
+        svg: { fontCache: "global" },
+      };
+    </script>
+    <script id="mathjaxScript" defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>查看结果</h1>
+            <p id="resultMeta">正在加载 test_data.md...</p>
+          </div>
+          <div class="actions">
+            <button id="saveButton" type="button">保存校核</button>
+            <a id="downloadLink" class="button" href="#">下载 zip</a>
+          </div>
+        </header>
+        <section id="preview" class="preview"></section>
+      </section>
+    </main>
+    <aside id="chatAssistant" class="chat-assistant" aria-live="polite">
+      <button id="chatToggle" class="chat-toggle" type="button" aria-label="打开大模型助手">
+        <img src="/pic_files/机器人图标.png" alt="" />
+      </button>
+      <section id="chatPanel" class="chat-panel" hidden>
+        <header>
+          <strong>校核助手</strong>
+          <button id="chatClose" type="button" aria-label="关闭">×</button>
+        </header>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div id="chatFiles" class="chat-files"></div>
+        <textarea id="chatInput" placeholder="输入问题，也可以上传图片后一起发送"></textarea>
+        <div class="chat-actions">
+          <label class="chat-file">
+            图片
+            <input id="chatImageInput" type="file" accept="image/*" multiple />
+          </label>
+          <button id="chatSend" type="button">发送</button>
+        </div>
+      </section>
+    </aside>
+    <script src="/static/result.js?v=20260513-2"></script>
+  </body>
+</html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>电力分析能力测试集生成</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>电力分析能力测试集生成</h1>
+            <p>上传问题图片与答案图片，自动生成题目文件夹和 zip 包。</p>
+          </div>
+          <button id="processBtn" type="button">开始处理</button>
+        </header>
+
+        <section class="config">
+          <label>
+            <span>URL</span>
+            <input id="url" name="url" value="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+          </label>
+          <label>
+            <span>Model Name</span>
+            <input id="model_name" name="model_name" value="qwen3.5-27b" />
+          </label>
+          <label>
+            <span>API Key</span>
+            <input id="api_key" name="api_key" type="password" value="sk-0c9adb8988964a60946e1f75f6561add" />
+          </label>
+          <label>
+            <span>数据来源</span>
+            <input id="data_source" name="data_source" placeholder="例如：电路基础" />
+          </label>
+        </section>
+
+        <section class="uploads">
+          <label class="dropzone" for="question_images">
+            <strong>问题</strong>
+            <span>上传需要抽取题目、题图 bbox 并裁剪的图片</span>
+            <input id="question_images" name="question_images" type="file" accept="image/*" multiple />
+            <output id="questionList"></output>
+          </label>
+
+          <label class="dropzone" for="answer_images">
+            <strong>答案</strong>
+            <span>上传需要识别题号和答案 LaTeX 文本的图片</span>
+            <input id="answer_images" name="answer_images" type="file" accept="image/*" multiple />
+            <output id="answerList"></output>
+          </label>
+        </section>
+
+        <section class="result" id="result" hidden>
+          <div>
+            <h2>处理结果</h2>
+            <p id="summary"></p>
+          </div>
+          <div class="actions">
+            <a id="downloadLink" class="button" href="#">下载 zip</a>
+            <a id="resultLink" class="button secondary" href="#" target="_blank">查看结果</a>
+          </div>
+        </section>
+
+        <pre id="log" class="log"></pre>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

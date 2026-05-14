@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>系统管理</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260513-2" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>系统管理</h1>
+            <p>账户采集与校核数据统计</p>
+          </div>
+          <div class="actions">
+            <a class="button secondary" href="/app">返回处理页</a>
+          </div>
+        </header>
+        <section class="admin-card">
+          <h2>账户统计</h2>
+          <table class="admin-table">
+            <thead>
+              <tr><th>账户名称</th><th>采集数据数量</th><th>校核数据数量</th></tr>
+            </thead>
+            <tbody id="statsBody"></tbody>
+          </table>
+        </section>
+
+        <section class="admin-card admin-settings">
+          <h2>注册设置</h2>
+          <label>
+            <span>注册码</span>
+            <input id="registerCodeInput" />
+          </label>
+          <div class="actions">
+            <button id="saveRegisterCode" type="button">保存注册码</button>
+            <span id="registerCodeStatus"></span>
+          </div>
+        </section>
+
+        <section class="admin-card">
+          <h2>修改建议</h2>
+          <div id="suggestionsList" class="suggestions-list"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/manage.js?v=20260513-2"></script>
+  </body>
+</html>

@@ -1,0 +1,49 @@
+services:
+  web:
+    build: .
+    command: uvicorn vl_app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: vl-data-gen:jobs
+    volumes:
+      - ./runs:/app/runs
+      - ./data:/app/data
+      - ./users.json:/app/users.json
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: python -m vl_app.worker
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: vl-data-gen:jobs
+    volumes:
+      - ./runs:/app/runs
+      - ./data:/app/data
+      - ./users.json:/app/users.json
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./static:/app/static:ro
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  redis-data:
