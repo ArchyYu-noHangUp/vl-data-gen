@@ -113,8 +113,9 @@ WEB_WORKERS=8 WORKER_CONCURRENCY=16 docker compose up -d --build
 
 ```text
 用户名：admin
-密码：1qaz@WSX
 ```
+
+默认管理员密码不在公开文档中展示；部署后请按内部流程获取或修改。
 
 ## 常用运维命令
 

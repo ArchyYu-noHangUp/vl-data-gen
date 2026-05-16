@@ -81,4 +81,5 @@ run_container
 
 echo "部署完成。"
 echo "访问地址：http://服务器IP:$PORT"
-echo "默认管理员：admin / 1qaz@WSX"
+echo "默认管理员：admin"
+echo "默认管理员密码请按内部流程获取或修改。"
