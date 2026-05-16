@@ -5,6 +5,7 @@ const preview = document.getElementById("preview");
 const meta = document.getElementById("resultMeta");
 const saveButton = document.getElementById("saveButton");
 const completeButton = document.getElementById("completeButton");
+const downloadButton = document.getElementById("downloadButton");
 const chatToggle = document.getElementById("chatToggle");
 const chatPanel = document.getElementById("chatPanel");
 const chatClose = document.getElementById("chatClose");
@@ -29,6 +30,33 @@ function isImagePath(line) {
 
 function assetUrl(path) {
   return `/asset/${encodeURIComponent(jobId)}/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function figureName(path) {
+  const name = String(path || "").split("/").pop() || "";
+  const stem = name.replace(/\.[^.]+$/, "");
+  return { stem, filename: `${stem}.jpg` };
+}
+
+function questionWithFigureLinks(question, figures) {
+  const figureMap = new Map();
+  for (const figure of figures || []) {
+    const item = figureName(figure);
+    if (item.stem) {
+      figureMap.set(item.stem, item.filename);
+    }
+  }
+  if (!question || !figureMap.size) {
+    return question;
+  }
+  return question.replace(/题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*/g, (match, rawRef) => {
+    const ref = rawRef.replace(/[－—]/g, "-");
+    const filename = figureMap.get(ref);
+    if (!filename) {
+      return match;
+    }
+    return `题图![${ref}](${filename}) `;
+  });
 }
 
 function splitBlocks(markdown) {
@@ -56,12 +84,15 @@ function parseBlock(block) {
     }
   }
 
+  const figures = (data["题图地址"] || []).map((line) => line.trim()).filter(Boolean);
+  const question = (data["问题"] || []).join("\n").trim();
+
   return {
     id: (data["题目编号"] || []).join("\n").trim(),
     type: (data["题目类型"] || []).join("\n").trim(),
     difficulty: (data["题目难度"] || []).join("\n").trim(),
-    question: (data["问题"] || []).join("\n").trim(),
-    figures: (data["题图地址"] || []).map((line) => line.trim()).filter(Boolean),
+    question: questionWithFigureLinks(question, figures),
+    figures,
     answer: (data["答案"] || []).join("\n").trim(),
     solution: (data["解答过程"] || []).join("\n").trim(),
     source: (data["题目来源"] || []).join("\n").trim(),
@@ -365,12 +396,15 @@ async function main() {
   if (!jobId) {
     meta.textContent = "缺少 job_id";
     saveButton.disabled = true;
+    completeButton.disabled = true;
+    downloadButton.disabled = true;
     return;
   }
 
   if (readonly) {
     saveButton.hidden = true;
     completeButton.hidden = true;
+    downloadButton.hidden = true;
     document.getElementById("chatAssistant").hidden = true;
   } else {
     saveButton.addEventListener("click", () => {
@@ -383,12 +417,18 @@ async function main() {
         meta.textContent = `错误：${err.message}`;
       });
     });
+    downloadButton.addEventListener("click", () => {
+      downloadZip().catch((err) => {
+        meta.textContent = `错误：${err.message}`;
+      });
+    });
     bindChat();
   }
   await reloadMarkdown();
   if (!readonly) {
     saveButton.disabled = false;
     completeButton.disabled = false;
+    downloadButton.disabled = false;
   }
 }
 
@@ -412,6 +452,28 @@ async function completeReview() {
     }
   } finally {
     completeButton.disabled = false;
+  }
+}
+
+async function downloadZip() {
+  downloadButton.disabled = true;
+  meta.textContent = "正在生成 zip 文件...";
+  try {
+    const resp = await fetch("/api/make-review-zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: jobId }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(formatError(data, "下载zip失败"));
+    }
+    meta.textContent = "zip 文件已生成，开始下载";
+    if (data.download_url) {
+      window.location.href = data.download_url;
+    }
+  } finally {
+    downloadButton.disabled = false;
   }
 }
 

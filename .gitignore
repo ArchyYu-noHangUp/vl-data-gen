@@ -15,6 +15,7 @@ env/
 runs/
 data/
 logs/
+sample_dataset/
 *.log
 
 # Local account/session data
@@ -35,6 +36,8 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+docker_release/*.tar
+docker_release/*.tar.gz
 
 # Node artifacts if added later
 node_modules/

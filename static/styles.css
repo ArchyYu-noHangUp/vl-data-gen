@@ -144,6 +144,27 @@ button:disabled {
   color: #173f34;
 }
 
+.welcome-page.simple-appearance {
+  background:
+    linear-gradient(135deg, #eef9f3 0%, #d8f0e4 48%, #bfe3d1 100%),
+    #e8f6ef;
+}
+
+.welcome-page.simple-appearance .welcome-shell {
+  grid-template-columns: minmax(0, 1fr) 390px;
+  max-width: 1040px;
+}
+
+.welcome-page.simple-appearance .welcome-hero h1 {
+  max-width: 620px;
+  font-size: 48px;
+  color: #0f4f38;
+}
+
+body.simple-appearance .topbar h1 {
+  color: #0f4f38;
+}
+
 
 .auth-panel,
 .admin-card {

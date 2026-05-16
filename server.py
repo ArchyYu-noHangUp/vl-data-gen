@@ -818,7 +818,32 @@ def safe_folder_name(name):
     return text or "未命名"
 
 
+def final_figure_name(figure_rel):
+    stem = safe_folder_name(Path(str(figure_rel)).stem)
+    return f"{stem}.jpg"
+
+
+def question_with_figure_links(question, figures):
+    figure_map = {Path(str(figure)).stem: final_figure_name(figure) for figure in figures if figure}
+    if not question or not figure_map:
+        return question
+
+    def repl(match):
+        raw_ref = match.group(1)
+        ref = raw_ref.replace("－", "-").replace("—", "-")
+        filename = figure_map.get(ref)
+        if not filename:
+            return match.group(0)
+        return f"题图![{ref}]({filename}) "
+
+    return re.sub(r"题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*", repl, question)
+
+
 def question_markdown(item):
+    question = question_with_figure_links(
+        str(item.get("question", "")).strip(),
+        item.get("figures", []),
+    )
     return "\n".join(
         [
             "#（一）题目类型",
@@ -826,7 +851,7 @@ def question_markdown(item):
             "#（二）题目难度",
             str(item.get("difficulty", "")).strip(),
             "#（三）问题",
-            str(item.get("question", "")).strip(),
+            question,
             "#（四）答案",
             str(item.get("answer", "")).strip(),
             "#（五）解答过程",
@@ -860,7 +885,7 @@ def make_final_package(job_id, records, source):
             except ValueError:
                 source_path = None
             if source_path and source_path.exists():
-                shutil.copyfile(source_path, question_dir / f"figure{figure_index}.jpg")
+                shutil.copyfile(source_path, question_dir / final_figure_name(figure))
 
     zip_path = job_dir / f"{OUTPUT_NAME}.zip"
     if zip_path.exists():

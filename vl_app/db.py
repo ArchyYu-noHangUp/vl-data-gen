@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "app.db"
 USERS_FILE = ROOT / "users.json"
 REGISTER_CODE = "225-m1"
+APPEARANCE_MODE = "simple"
 
 
 def connect():
@@ -86,6 +87,10 @@ def init_db():
         conn.execute(
             "insert or ignore into settings(key, value, updated_at) values ('register_code', ?, ?)",
             (REGISTER_CODE, now_text()),
+        )
+        conn.execute(
+            "insert or ignore into settings(key, value, updated_at) values ('appearance_mode', ?, ?)",
+            (APPEARANCE_MODE, now_text()),
         )
     ensure_admin()
     migrate_users_json()
@@ -182,6 +187,17 @@ def get_register_code():
 
 def set_register_code(value):
     set_setting("register_code", value)
+
+
+def get_appearance_mode():
+    value = get_setting("appearance_mode", APPEARANCE_MODE)
+    return value if value in {"standard", "simple"} else APPEARANCE_MODE
+
+
+def set_appearance_mode(value):
+    if value not in {"standard", "simple"}:
+        value = APPEARANCE_MODE
+    set_setting("appearance_mode", value)
 
 
 def add_suggestion(username, content):
@@ -311,10 +327,12 @@ def enqueue_sqlite(job_id, payload):
 
 def pop_sqlite_task():
     with connect() as conn:
+        conn.execute("begin immediate")
         row = conn.execute(
             "select id, job_id, payload from task_queue where status = 'pending' order by id limit 1"
         ).fetchone()
         if not row:
+            conn.rollback()
             return None
         conn.execute(
             "update task_queue set status = 'running', started_at = ? where id = ?",

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>系统管理</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260514-5" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260515-2" />
   </head>
   <body>
     <main class="app">
@@ -49,6 +49,21 @@
         </section>
 
         <section class="admin-card admin-settings">
+          <h2>外观管理</h2>
+          <label>
+            <span>外观显示</span>
+            <select id="appearanceSelect">
+              <option value="standard">标准外观</option>
+              <option value="simple">简洁外观</option>
+            </select>
+          </label>
+          <div class="actions">
+            <button id="saveAppearance" type="button">保存外观</button>
+            <span id="appearanceStatus"></span>
+          </div>
+        </section>
+
+        <section class="admin-card admin-settings">
           <h2>注册设置</h2>
           <label>
             <span>注册码</span>
@@ -66,6 +81,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/manage.js?v=20260514-5"></script>
+    <script src="/static/manage.js?v=20260515-3"></script>
   </body>
 </html>

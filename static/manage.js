@@ -45,9 +45,11 @@ async function loadSettings() {
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     document.getElementById("registerCodeStatus").textContent = data.error || "加载失败";
+    document.getElementById("appearanceStatus").textContent = data.error || "加载失败";
     return;
   }
   document.getElementById("registerCodeInput").value = data.register_code || "";
+  document.getElementById("appearanceSelect").value = data.appearance || "standard";
 }
 
 async function saveRegisterCode() {
@@ -63,6 +65,24 @@ async function saveRegisterCode() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.error || "保存失败");
     status.textContent = "已保存";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+}
+
+async function saveAppearance() {
+  const status = document.getElementById("appearanceStatus");
+  status.textContent = "";
+  const appearance = document.getElementById("appearanceSelect").value;
+  try {
+    const resp = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appearance }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || "保存失败");
+    status.textContent = "已保存，刷新页面后生效";
   } catch (err) {
     status.textContent = err.message;
   }
@@ -91,7 +111,7 @@ async function loadFinalItems() {
           <td><button type="button" class="link-button" data-action="show-qids" data-qids="${escapeAttr((item.qids || []).join("、"))}">查看题目编号</button></td>
           <td><input data-field="username" value="${escapeAttr(item.username)}" /></td>
           <td>${escapeHtml(item.generated_at)}</td>
-          <td><a href="/static/result.html?job_id=${encodeURIComponent(item.job_id)}&readonly=1" target="_blank">查看校核结果</a></td>
+          <td><a href="/static/result.html?job_id=${encodeURIComponent(item.job_id)}" target="_blank">查看校核结果</a></td>
           <td class="row-actions">
             <button type="button" data-action="accept">保存</button>
             <button type="button" class="secondary-action" data-action="discard">放弃</button>
@@ -220,6 +240,7 @@ function escapeAttr(text) {
 }
 
 document.getElementById("saveRegisterCode").addEventListener("click", saveRegisterCode);
+document.getElementById("saveAppearance").addEventListener("click", saveAppearance);
 loadStats();
 loadSettings();
 loadFinalItems();

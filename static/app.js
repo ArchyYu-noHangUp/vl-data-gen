@@ -8,6 +8,14 @@ async function initUser() {
     window.location.href = "/";
     return;
   }
+  if (data.appearance === "simple") {
+    document.body.classList.add("simple-appearance");
+    document.title = "评测数据采集与标注";
+    $("appTitle").textContent = "评测数据采集与标注";
+    $("versionBadge").hidden = true;
+    $("userInfo").hidden = true;
+  }
+  $("versionBadge").textContent = `版本 ${data.version || "0.2.2"}`;
   $("userInfo").textContent = `${data.user.username}，上传问题图片与答案图片，自动生成题目文件夹和校核结果。`;
   $("manageLink").hidden = data.user.role !== "admin";
 }

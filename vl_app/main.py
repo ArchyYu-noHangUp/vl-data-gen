@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import requests
 
@@ -25,7 +25,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path("/tmp/vl-data-gen-final")
 SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -100,18 +100,46 @@ def status_counts(job_id):
     }
 
 
-def copy_first_figure(job_id, item, target_dir):
+def final_figure_name(figure_rel):
+    stem = safe_folder_name(Path(str(figure_rel)).stem)
+    return f"{stem}.jpg"
+
+
+def copy_item_figures(job_id, item, target_dir):
     output_dir = RUNS / job_id / legacy.OUTPUT_NAME
     figures = [fig for fig in item.get("figures", []) if fig]
-    if not figures:
-        return
-    source = (output_dir / figures[0]).resolve()
-    try:
-        source.relative_to(output_dir.resolve())
-    except ValueError:
-        return
-    if source.exists():
-        shutil.copyfile(source, target_dir / "figure.jpg")
+    copied = {}
+    used_names = set()
+    for figure in figures:
+        source = (output_dir / figure).resolve()
+        try:
+            source.relative_to(output_dir.resolve())
+        except ValueError:
+            continue
+        if not source.exists():
+            continue
+        filename = final_figure_name(figure)
+        if filename in used_names:
+            filename = f"{safe_folder_name(source.stem)}_{len(used_names) + 1}.jpg"
+        shutil.copyfile(source, target_dir / filename)
+        copied[source.stem] = filename
+        used_names.add(filename)
+    return copied
+
+
+def question_with_figure_links(question, figure_map):
+    if not question or not figure_map:
+        return question
+
+    def repl(match):
+        raw_ref = match.group(1)
+        ref = raw_ref.replace("－", "-").replace("—", "-")
+        filename = figure_map.get(ref)
+        if not filename:
+            return match.group(0)
+        return f"题图![{ref}]({filename}) "
+
+    return re.sub(r"题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*", repl, question)
 
 
 def replace_markdown_source(md_text, source):
@@ -135,8 +163,10 @@ def create_final_records(job_id, username):
         chapter = question_chapter(qid)
         item_dir = temp_root / safe_folder_name(qid)
         item_dir.mkdir(parents=True, exist_ok=True)
-        (item_dir / "data.md").write_text(legacy.question_markdown(item), encoding="utf-8")
-        copy_first_figure(job_id, item, item_dir)
+        figure_map = copy_item_figures(job_id, item, item_dir)
+        final_item = dict(item)
+        final_item["question"] = question_with_figure_links(item.get("question", ""), figure_map)
+        (item_dir / "data.md").write_text(legacy.question_markdown(final_item), encoding="utf-8")
         db.add_final_item(job_id, data_source, chapter, qid, username, generated_at, str(item_dir))
     update_job_meta(job_id, {"final_completed": True, "final_completed_at": generated_at})
     return generated_at
@@ -259,6 +289,29 @@ def html_file(name):
     return FileResponse(STATIC / name, media_type="text/html; charset=utf-8")
 
 
+def welcome_html():
+    html = (STATIC / "welcome.html").read_text(encoding="utf-8")
+    if db.get_appearance_mode() != "simple":
+        return HTMLResponse(html)
+    html = html.replace(
+        "<title>电力分析能力评测数据采集与标注系统</title>",
+        "<title>评测数据采集与标注</title>",
+    )
+    html = html.replace(
+        '<body class="welcome-page">',
+        '<body class="welcome-page simple-appearance">',
+    )
+    html = html.replace(
+        '<h1 id="welcomeTitle">电力分析能力评测数据采集与标注系统</h1>',
+        '<h1 id="welcomeTitle">评测数据采集与标注</h1>',
+    )
+    html = html.replace(
+        '<p id="welcomeSubtitle">面向电力分析评测数据的采集、校核、标注与归档。</p>',
+        '<p id="welcomeSubtitle" hidden>面向电力分析评测数据的采集、校核、标注与归档。</p>',
+    )
+    return HTMLResponse(html)
+
+
 def set_sid_cookie(response: Response, sid):
     response.set_cookie("sid", sid, httponly=True, samesite="lax", path="/")
 
@@ -271,7 +324,7 @@ def clear_sid_cookie(response: Response):
 def welcome(request: Request):
     if current_user(request):
         return RedirectResponse("/app", status_code=302)
-    return html_file("welcome.html")
+    return welcome_html()
 
 
 @app.get("/app")
@@ -355,7 +408,12 @@ def api_logout(request: Request):
 
 @app.get("/api/me")
 def api_me(request: Request):
-    return {"user": current_user(request), "version": APP_VERSION}
+    return {"user": current_user(request), "version": APP_VERSION, "appearance": db.get_appearance_mode()}
+
+
+@app.get("/api/appearance")
+def api_appearance():
+    return {"appearance": db.get_appearance_mode(), "version": APP_VERSION}
 
 
 @app.get("/api/default-config")
@@ -514,17 +572,21 @@ async def create_suggestion(request: Request, payload: dict):
 @app.get("/api/admin/settings")
 def admin_settings(request: Request):
     require_admin(request)
-    return {"register_code": db.get_register_code()}
+    return {"register_code": db.get_register_code(), "appearance": db.get_appearance_mode()}
 
 
 @app.post("/api/admin/settings")
 async def update_admin_settings(request: Request, payload: dict):
     require_admin(request)
-    register_code = str(payload.get("register_code", "")).strip()
+    register_code = str(payload.get("register_code", db.get_register_code())).strip()
+    appearance = str(payload.get("appearance", db.get_appearance_mode())).strip()
     if not register_code:
         return JSONResponse({"error": "注册码不能为空"}, status_code=400)
+    if appearance not in {"standard", "simple"}:
+        return JSONResponse({"error": "外观配置无效"}, status_code=400)
     db.set_register_code(register_code)
-    return {"ok": True, "register_code": register_code}
+    db.set_appearance_mode(appearance)
+    return {"ok": True, "register_code": register_code, "appearance": appearance}
 
 
 @app.get("/api/admin/suggestions")
@@ -592,8 +654,8 @@ def admin_save_final_job(job_id: str, request: Request):
         data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
         if data_text:
             (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
-        if (temp_dir / "figure.jpg").exists():
-            shutil.copyfile(temp_dir / "figure.jpg", target / "figure.jpg")
+        for figure_path in temp_dir.glob("*.jpg"):
+            shutil.copyfile(figure_path, target / figure_path.name)
         saved_root = str(target.parent.parent)
     db.mark_final_job(job_id, "saved", saved_root)
     cleanup_job_artifacts(job_id)
@@ -643,8 +705,8 @@ def admin_save_final_item(item_id: int, request: Request):
     data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
     if data_text:
         (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
-    if (temp_dir / "figure.jpg").exists():
-        shutil.copyfile(temp_dir / "figure.jpg", target / "figure.jpg")
+    for figure_path in temp_dir.glob("*.jpg"):
+        shutil.copyfile(figure_path, target / figure_path.name)
     shutil.rmtree(temp_dir)
     db.mark_final_item(item_id, "saved", str(target))
     return {"ok": True}
@@ -726,6 +788,21 @@ async def complete_review(request: Request, payload: dict):
             make_review_zip(job_id)
             download_url = f"/download/{job_id}"
         return {"ok": True, "download_url": download_url}
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/make-review-zip")
+async def make_review_zip_api(request: Request, payload: dict):
+    user = require_user(request)
+    job_id = str(payload.get("job_id", "")).strip()
+    if not job_id:
+        return JSONResponse({"error": "缺少 job_id"}, status_code=400)
+    if not can_access(user, job_id):
+        return JSONResponse({"error": "无权访问该任务"}, status_code=403)
+    try:
+        make_review_zip(job_id)
+        return {"ok": True, "download_url": f"/download/{job_id}"}
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
