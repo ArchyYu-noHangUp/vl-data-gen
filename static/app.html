@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>电力分析能力评测数据采集与标注系统</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260515-2" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260517-5" />
   </head>
   <body>
     <main class="app">
@@ -12,7 +12,7 @@
         <header class="topbar">
           <div>
             <h1 id="appTitle">电力分析能力评测数据采集与标注系统</h1>
-            <span id="versionBadge" class="version-badge">版本 0.2.3</span>
+            <span id="versionBadge" class="version-badge">版本 0.3.0</span>
             <p id="userInfo">上传问题图片与答案图片，自动生成题目文件夹和 zip 包。</p>
           </div>
           <div class="actions">
@@ -23,7 +23,8 @@
         </header>
 
         <section class="config">
-          <label>
+          <div id="modelConfigWarning" class="warning-banner" hidden>请联系管理员配置数据处理模型。</div>
+          <label class="config-wide">
             <span>数据来源</span>
             <input id="data_source" name="data_source" placeholder="例如：电路基础" />
           </label>
@@ -70,6 +71,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/app.js?v=20260517-4"></script>
+    <script src="/static/app.js?v=20260517-5"></script>
   </body>
 </html>

@@ -290,6 +290,21 @@ body.simple-appearance .topbar h1 {
   margin-bottom: 18px;
 }
 
+.warning-banner {
+  grid-column: 1 / -1;
+  border: 1px solid #f0b86a;
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: #fff5df;
+  color: #7a3f00;
+  font-weight: 700;
+}
+
+.config-wide {
+  grid-column: 1 / -1;
+  max-width: 560px;
+}
+
 label span {
   display: block;
   margin-bottom: 7px;

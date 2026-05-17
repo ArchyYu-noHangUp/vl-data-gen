@@ -25,7 +25,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path("/tmp/vl-data-gen-final")
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.2.3"
+APP_VERSION = "0.3.0"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -465,7 +465,13 @@ def api_logout(request: Request):
 
 @app.get("/api/me")
 def api_me(request: Request):
-    return {"user": current_user(request), "version": APP_VERSION, "appearance": db.get_appearance_mode()}
+    config = db.get_model_config()
+    return {
+        "user": current_user(request),
+        "version": APP_VERSION,
+        "appearance": db.get_appearance_mode(),
+        "model_configured": bool(config.get("url") and config.get("model_name") and config.get("api_key")),
+    }
 
 
 @app.get("/api/appearance")
