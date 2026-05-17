@@ -312,6 +312,25 @@ def welcome_html():
     return HTMLResponse(html)
 
 
+def register_html():
+    html = (STATIC / "register.html").read_text(encoding="utf-8")
+    if db.get_appearance_mode() != "simple":
+        return HTMLResponse(html)
+    html = html.replace(
+        '<body class="welcome-page">',
+        '<body class="welcome-page simple-appearance">',
+    )
+    html = html.replace(
+        '<h1 id="registerTitle">电力分析能力评测数据采集与标注系统</h1>',
+        '<h1 id="registerTitle">评测数据采集与标注</h1>',
+    )
+    html = html.replace(
+        '<p id="registerSubtitle">注册账户后进入数据采集与标注工作台。</p>',
+        '<p id="registerSubtitle" hidden>注册账户后进入数据采集与标注工作台。</p>',
+    )
+    return HTMLResponse(html)
+
+
 def set_sid_cookie(response: Response, sid):
     response.set_cookie("sid", sid, httponly=True, samesite="lax", path="/")
 
@@ -335,7 +354,7 @@ def processing_page(request: Request):
 
 @app.get("/register")
 def register_page():
-    return html_file("register.html")
+    return register_html()
 
 
 @app.get("/manage")
