@@ -5,7 +5,6 @@ const preview = document.getElementById("preview");
 const meta = document.getElementById("resultMeta");
 const saveButton = document.getElementById("saveButton");
 const completeButton = document.getElementById("completeButton");
-const downloadButton = document.getElementById("downloadButton");
 const chatToggle = document.getElementById("chatToggle");
 const chatPanel = document.getElementById("chatPanel");
 const chatClose = document.getElementById("chatClose");
@@ -394,14 +393,12 @@ async function main() {
     meta.textContent = "缺少 job_id";
     saveButton.disabled = true;
     completeButton.disabled = true;
-    downloadButton.disabled = true;
     return;
   }
 
   if (readonly) {
     saveButton.hidden = true;
     completeButton.hidden = true;
-    downloadButton.hidden = true;
     document.getElementById("chatAssistant").hidden = true;
   } else {
     saveButton.addEventListener("click", () => {
@@ -414,63 +411,31 @@ async function main() {
         meta.textContent = `错误：${err.message}`;
       });
     });
-    downloadButton.addEventListener("click", () => {
-      downloadZip().catch((err) => {
-        meta.textContent = `错误：${err.message}`;
-      });
-    });
     bindChat();
   }
   await reloadMarkdown();
   if (!readonly) {
     saveButton.disabled = false;
     completeButton.disabled = false;
-    downloadButton.disabled = false;
   }
 }
 
 async function completeReview() {
   completeButton.disabled = true;
   meta.textContent = "正在完成校核并生成最终结果...";
-  const wantDownload = window.confirm("是否需要下载 zip 文件？");
   try {
     const resp = await fetch("/api/complete-review", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_id: jobId, download: wantDownload }),
-    });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error(formatError(data, "完成校核失败"));
-    }
-    meta.textContent = "完成校核成功，该数据处理ID已形成最终结果";
-    if (wantDownload && data.download_url) {
-      window.location.href = data.download_url;
-    }
-  } finally {
-    completeButton.disabled = false;
-  }
-}
-
-async function downloadZip() {
-  downloadButton.disabled = true;
-  meta.textContent = "正在生成 zip 文件...";
-  try {
-    const resp = await fetch("/api/make-review-zip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ job_id: jobId }),
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new Error(formatError(data, "下载zip失败"));
+      throw new Error(formatError(data, "完成校核失败"));
     }
-    meta.textContent = "zip 文件已生成，开始下载";
-    if (data.download_url) {
-      window.location.href = data.download_url;
-    }
+    meta.textContent = "完成校核成功，该数据处理ID已形成最终结果";
   } finally {
-    downloadButton.disabled = false;
+    completeButton.disabled = false;
   }
 }
 

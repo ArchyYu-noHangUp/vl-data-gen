@@ -79,9 +79,6 @@ $("processBtn").addEventListener("click", async () => {
   log.textContent = "开始上传并调用多模态模型，请等待...\n";
 
   const form = new FormData();
-  form.append("url", $("url").value.trim());
-  form.append("model_name", $("model_name").value.trim());
-  form.append("api_key", $("api_key").value.trim());
   form.append("data_source", $("data_source").value.trim());
   for (const file of $("question_images").files) {
     form.append("question_images", file);

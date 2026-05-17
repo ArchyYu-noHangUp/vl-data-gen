@@ -31,7 +31,7 @@ docker save vl-data-gen:0.2.3 | gzip > docker_release/vl-data-gen-0.2.3.tar.gz
 ```text
 /root/vl-data-gen/docker_release/vl-data-gen-0.2.3.tar.gz
 大小：223M
-SHA256：a0623e934276e424364d58814e99cad46b9772a959bdff1e5817d7f5a6f3773e
+SHA256：1a92af585bc93530cc3abb785b4b3d3bffbadeab0d77ef6d26aef8b21ebd989b
 ```
 
 ## 加载镜像

@@ -11,6 +11,8 @@ DB_PATH = Path(__file__).resolve().parents[1] / "data" / "app.db"
 USERS_FILE = ROOT / "users.json"
 REGISTER_CODE = "225-m1"
 APPEARANCE_MODE = "simple"
+MODEL_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+MODEL_NAME = "qwen3.5-27b"
 
 
 def connect():
@@ -91,6 +93,18 @@ def init_db():
         conn.execute(
             "insert or ignore into settings(key, value, updated_at) values ('appearance_mode', ?, ?)",
             (APPEARANCE_MODE, now_text()),
+        )
+        conn.execute(
+            "insert or ignore into settings(key, value, updated_at) values ('model_url', ?, ?)",
+            (MODEL_URL, now_text()),
+        )
+        conn.execute(
+            "insert or ignore into settings(key, value, updated_at) values ('model_name', ?, ?)",
+            (MODEL_NAME, now_text()),
+        )
+        conn.execute(
+            "insert or ignore into settings(key, value, updated_at) values ('model_api_key', '', ?)",
+            (now_text(),),
         )
     ensure_admin()
     migrate_users_json()
@@ -198,6 +212,23 @@ def set_appearance_mode(value):
     if value not in {"standard", "simple"}:
         value = APPEARANCE_MODE
     set_setting("appearance_mode", value)
+
+
+def get_model_config():
+    return {
+        "url": get_setting("model_url", MODEL_URL),
+        "model_name": get_setting("model_name", MODEL_NAME),
+        "api_key": get_setting("model_api_key", ""),
+    }
+
+
+def set_model_config(url=None, model_name=None, api_key=None):
+    if url is not None:
+        set_setting("model_url", url)
+    if model_name is not None:
+        set_setting("model_name", model_name)
+    if api_key is not None:
+        set_setting("model_api_key", api_key)
 
 
 def add_suggestion(username, content):

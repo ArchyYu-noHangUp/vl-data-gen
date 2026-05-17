@@ -49,6 +49,38 @@
         </section>
 
         <section class="admin-card admin-settings">
+          <h2>多模态大模型配置</h2>
+          <label>
+            <span>URL</span>
+            <input id="modelUrlInput" />
+          </label>
+          <label>
+            <span>Model Name</span>
+            <input id="modelNameInput" />
+          </label>
+          <label>
+            <span>API Key</span>
+            <input id="modelApiKeyInput" type="password" placeholder="留空则不修改现有 API Key" />
+          </label>
+          <div class="actions">
+            <button id="saveModelConfig" type="button">保存模型配置</button>
+            <span id="modelConfigStatus"></span>
+          </div>
+        </section>
+
+        <section class="admin-card admin-settings">
+          <h2>样本集路径</h2>
+          <label>
+            <span>绝对路径</span>
+            <input id="sampleDatasetPathInput" />
+          </label>
+          <div class="actions">
+            <button id="saveSampleDatasetPath" type="button">保存并移动样本集</button>
+            <span id="sampleDatasetPathStatus"></span>
+          </div>
+        </section>
+
+        <section class="admin-card admin-settings">
           <h2>外观管理</h2>
           <label>
             <span>外观显示</span>
@@ -81,6 +113,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/manage.js?v=20260515-3"></script>
+    <script src="/static/manage.js?v=20260517-4"></script>
   </body>
 </html>

@@ -24,7 +24,7 @@ STATIC = ROOT / "static"
 RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path("/tmp/vl-data-gen-final")
-SAMPLE_DATASET = ROOT / "sample_dataset"
+DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
 APP_VERSION = "0.2.3"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
@@ -37,8 +37,8 @@ if PIC_FILES.exists():
 def startup():
     RUNS.mkdir(exist_ok=True)
     TEMP_FINALS.mkdir(parents=True, exist_ok=True)
-    SAMPLE_DATASET.mkdir(parents=True, exist_ok=True)
     db.init_db()
+    sample_dataset_root().mkdir(parents=True, exist_ok=True)
     db.cleanup_expired_sessions()
 
 
@@ -80,6 +80,43 @@ def require_admin(request: Request):
 
 def safe_folder_name(name):
     return legacy.safe_folder_name(name)
+
+
+def sample_dataset_root():
+    configured = db.get_setting("sample_dataset_path", str(DEFAULT_SAMPLE_DATASET))
+    return Path(configured).expanduser().resolve()
+
+
+def move_sample_dataset(new_path):
+    target = Path(new_path).expanduser()
+    if not target.is_absolute():
+        raise ValueError("样本集路径必须是绝对路径")
+    target = target.resolve()
+    current = sample_dataset_root()
+    if target == current:
+        target.mkdir(parents=True, exist_ok=True)
+        db.set_setting("sample_dataset_path", str(target))
+        return str(target)
+    try:
+        target.relative_to(current)
+        raise ValueError("新路径不能位于当前样本集路径内部")
+    except ValueError as exc:
+        if "新路径不能" in str(exc):
+            raise
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if current.exists() and any(current.iterdir()):
+        if target.exists():
+            target.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(current, target, dirs_exist_ok=True)
+            shutil.rmtree(current)
+        else:
+            shutil.move(str(current), str(target))
+    else:
+        target.mkdir(parents=True, exist_ok=True)
+        if current.exists() and current != DEFAULT_SAMPLE_DATASET:
+            shutil.rmtree(current, ignore_errors=True)
+    db.set_setting("sample_dataset_path", str(target))
+    return str(target)
 
 
 def question_chapter(qid):
@@ -193,9 +230,10 @@ def cleanup_job_artifacts(job_id):
 
 def sample_dataset_status():
     items = []
-    if not SAMPLE_DATASET.exists():
+    sample_root = sample_dataset_root()
+    if not sample_root.exists():
         return items
-    for source_dir in sorted([path for path in SAMPLE_DATASET.iterdir() if path.is_dir()], key=lambda p: p.name):
+    for source_dir in sorted([path for path in sample_root.iterdir() if path.is_dir()], key=lambda p: p.name):
         chapters = [path for path in source_dir.iterdir() if path.is_dir()]
         q_count = 0
         chapter_names = []
@@ -437,8 +475,13 @@ def api_appearance():
 
 @app.get("/api/default-config")
 def default_config(request: Request):
-    require_user(request)
-    return {"url": legacy.DEFAULT_URL, "model_name": legacy.DEFAULT_MODEL, "api_key": ""}
+    require_admin(request)
+    config = db.get_model_config()
+    return {
+        "url": config["url"],
+        "model_name": config["model_name"],
+        "api_key_configured": bool(config.get("api_key")),
+    }
 
 
 class UploadWrapper:
@@ -468,13 +511,15 @@ def write_initial_log(job_dir):
 async def process(request: Request):
     user = require_user(request)
     form = await request.form()
-    url = str(form.get("url") or legacy.DEFAULT_URL)
-    model_name = str(form.get("model_name") or legacy.DEFAULT_MODEL)
-    api_key = str(form.get("api_key") or "")
     data_source = str(form.get("data_source") or "")
-    config = {"url": url.strip() or legacy.DEFAULT_URL, "model_name": model_name.strip() or legacy.DEFAULT_MODEL, "api_key": api_key.strip()}
+    config = db.get_model_config()
+    config = {
+        "url": str(config.get("url") or legacy.DEFAULT_URL).strip(),
+        "model_name": str(config.get("model_name") or legacy.DEFAULT_MODEL).strip(),
+        "api_key": str(config.get("api_key") or "").strip(),
+    }
     if not config["api_key"]:
-        return JSONResponse({"error": "请填写 api_key"}, status_code=400)
+        return JSONResponse({"error": "管理员尚未配置多模态大模型 API Key"}, status_code=400)
     question_images = [item for item in form.getlist("question_images") if getattr(item, "filename", None)]
     answer_images = [item for item in form.getlist("answer_images") if getattr(item, "filename", None)]
     if not question_images and not answer_images:
@@ -591,7 +636,15 @@ async def create_suggestion(request: Request, payload: dict):
 @app.get("/api/admin/settings")
 def admin_settings(request: Request):
     require_admin(request)
-    return {"register_code": db.get_register_code(), "appearance": db.get_appearance_mode()}
+    config = db.get_model_config()
+    return {
+        "register_code": db.get_register_code(),
+        "appearance": db.get_appearance_mode(),
+        "model_url": config["url"],
+        "model_name": config["model_name"],
+        "model_api_key_configured": bool(config.get("api_key")),
+        "sample_dataset_path": str(sample_dataset_root()),
+    }
 
 
 @app.post("/api/admin/settings")
@@ -599,13 +652,41 @@ async def update_admin_settings(request: Request, payload: dict):
     require_admin(request)
     register_code = str(payload.get("register_code", db.get_register_code())).strip()
     appearance = str(payload.get("appearance", db.get_appearance_mode())).strip()
+    model_url = payload.get("model_url")
+    model_name = payload.get("model_name")
+    model_api_key = str(payload.get("model_api_key", "")).strip() if "model_api_key" in payload else None
+    sample_path = str(payload.get("sample_dataset_path", "")).strip() if "sample_dataset_path" in payload else ""
     if not register_code:
         return JSONResponse({"error": "注册码不能为空"}, status_code=400)
     if appearance not in {"standard", "simple"}:
         return JSONResponse({"error": "外观配置无效"}, status_code=400)
+    if model_url is not None and not str(model_url).strip():
+        return JSONResponse({"error": "模型 URL 不能为空"}, status_code=400)
+    if model_name is not None and not str(model_name).strip():
+        return JSONResponse({"error": "模型名称不能为空"}, status_code=400)
     db.set_register_code(register_code)
     db.set_appearance_mode(appearance)
-    return {"ok": True, "register_code": register_code, "appearance": appearance}
+    if model_url is not None or model_name is not None or model_api_key:
+        db.set_model_config(
+            url=str(model_url).strip() if model_url is not None else None,
+            model_name=str(model_name).strip() if model_name is not None else None,
+            api_key=model_api_key if model_api_key else None,
+        )
+    if sample_path:
+        try:
+            move_sample_dataset(sample_path)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+    config = db.get_model_config()
+    return {
+        "ok": True,
+        "register_code": db.get_register_code(),
+        "appearance": db.get_appearance_mode(),
+        "model_url": config["url"],
+        "model_name": config["model_name"],
+        "model_api_key_configured": bool(config.get("api_key")),
+        "sample_dataset_path": str(sample_dataset_root()),
+    }
 
 
 @app.get("/api/admin/suggestions")
@@ -668,7 +749,7 @@ def admin_save_final_job(job_id: str, request: Request):
         temp_dir = Path(item["temp_dir"])
         if not temp_dir.exists():
             continue
-        target = SAMPLE_DATASET / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
+        target = sample_dataset_root() / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
         target.mkdir(parents=True, exist_ok=True)
         data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
         if data_text:
@@ -719,7 +800,7 @@ def admin_save_final_item(item_id: int, request: Request):
     temp_dir = Path(item["temp_dir"])
     if not temp_dir.exists():
         return JSONResponse({"error": "临时结果文件不存在"}, status_code=404)
-    target = SAMPLE_DATASET / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
+    target = sample_dataset_root() / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
     target.mkdir(parents=True, exist_ok=True)
     data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
     if data_text:
@@ -733,7 +814,7 @@ def admin_save_final_item(item_id: int, request: Request):
 
 @app.get("/download/{job_id}")
 def download(job_id: str, request: Request):
-    user = require_user(request)
+    user = require_admin(request)
     if not can_access(user, job_id):
         raise HTTPException(status_code=403, detail="无权访问该任务")
     path = RUNS / job_id / f"{legacy.OUTPUT_NAME}.zip"
@@ -795,25 +876,20 @@ async def save_result(request: Request):
 async def complete_review(request: Request, payload: dict):
     user = require_user(request)
     job_id = str(payload.get("job_id", "")).strip()
-    want_download = bool(payload.get("download"))
     if not job_id:
         return JSONResponse({"error": "缺少 job_id"}, status_code=400)
     if not can_access(user, job_id):
         return JSONResponse({"error": "无权访问该任务"}, status_code=403)
     try:
         create_final_records(job_id, user["username"])
-        download_url = ""
-        if want_download:
-            make_review_zip(job_id)
-            download_url = f"/download/{job_id}"
-        return {"ok": True, "download_url": download_url}
+        return {"ok": True}
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/api/make-review-zip")
 async def make_review_zip_api(request: Request, payload: dict):
-    user = require_user(request)
+    user = require_admin(request)
     job_id = str(payload.get("job_id", "")).strip()
     if not job_id:
         return JSONResponse({"error": "缺少 job_id"}, status_code=400)

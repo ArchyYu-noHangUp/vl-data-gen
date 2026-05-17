@@ -46,10 +46,16 @@ async function loadSettings() {
   if (!resp.ok) {
     document.getElementById("registerCodeStatus").textContent = data.error || "加载失败";
     document.getElementById("appearanceStatus").textContent = data.error || "加载失败";
+    document.getElementById("modelConfigStatus").textContent = data.error || "加载失败";
+    document.getElementById("sampleDatasetPathStatus").textContent = data.error || "加载失败";
     return;
   }
   document.getElementById("registerCodeInput").value = data.register_code || "";
   document.getElementById("appearanceSelect").value = data.appearance || "standard";
+  document.getElementById("modelUrlInput").value = data.model_url || "";
+  document.getElementById("modelNameInput").value = data.model_name || "";
+  document.getElementById("modelApiKeyInput").placeholder = data.model_api_key_configured ? "已配置，留空则不修改" : "尚未配置，请填写 API Key";
+  document.getElementById("sampleDatasetPathInput").value = data.sample_dataset_path || "";
 }
 
 async function saveRegisterCode() {
@@ -88,6 +94,53 @@ async function saveAppearance() {
   }
 }
 
+async function saveModelConfig() {
+  const status = document.getElementById("modelConfigStatus");
+  status.textContent = "";
+  const payload = {
+    model_url: document.getElementById("modelUrlInput").value.trim(),
+    model_name: document.getElementById("modelNameInput").value.trim(),
+  };
+  const apiKey = document.getElementById("modelApiKeyInput").value.trim();
+  if (apiKey) {
+    payload.model_api_key = apiKey;
+  }
+  try {
+    const resp = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || "保存失败");
+    document.getElementById("modelApiKeyInput").value = "";
+    document.getElementById("modelApiKeyInput").placeholder = data.model_api_key_configured ? "已配置，留空则不修改" : "尚未配置，请填写 API Key";
+    status.textContent = "已保存";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+}
+
+async function saveSampleDatasetPath() {
+  const status = document.getElementById("sampleDatasetPathStatus");
+  status.textContent = "";
+  const samplePath = document.getElementById("sampleDatasetPathInput").value.trim();
+  try {
+    const resp = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sample_dataset_path: samplePath }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || "保存失败");
+    document.getElementById("sampleDatasetPathInput").value = data.sample_dataset_path || samplePath;
+    status.textContent = "已保存并移动样本集";
+    await loadSampleStatus();
+  } catch (err) {
+    status.textContent = err.message;
+  }
+}
+
 async function loadFinalItems() {
   const resp = await fetch("/api/admin/final-items");
   const data = await resp.json().catch(() => ({}));
@@ -114,6 +167,7 @@ async function loadFinalItems() {
           <td><a href="/static/result.html?job_id=${encodeURIComponent(item.job_id)}" target="_blank">查看校核结果</a></td>
           <td class="row-actions">
             <button type="button" data-action="accept">保存</button>
+            <button type="button" class="secondary-action" data-action="download">下载zip</button>
             <button type="button" class="secondary-action" data-action="discard">放弃</button>
           </td>
         </tr>`
@@ -175,6 +229,10 @@ async function handleFinalAction(event) {
       return;
     }
     await postFinalAction(jobId, "save");
+  } else if (action === "download") {
+    await downloadFinalZip(jobId);
+    document.getElementById("finalItemsBody").addEventListener("click", handleFinalAction, { once: true });
+    return;
   }
   await loadFinalItems();
 }
@@ -205,6 +263,22 @@ async function postFinalAction(jobId, action) {
   const resp = await fetch(`/api/admin/final-jobs/${encodeURIComponent(jobId)}/${action}`, { method: "POST" });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) alert(data.error || "操作失败");
+}
+
+async function downloadFinalZip(jobId) {
+  const resp = await fetch("/api/make-review-zip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    alert(data.error || "下载zip失败");
+    return;
+  }
+  if (data.download_url) {
+    window.location.href = data.download_url;
+  }
 }
 
 async function loadSuggestions() {
@@ -241,6 +315,8 @@ function escapeAttr(text) {
 
 document.getElementById("saveRegisterCode").addEventListener("click", saveRegisterCode);
 document.getElementById("saveAppearance").addEventListener("click", saveAppearance);
+document.getElementById("saveModelConfig").addEventListener("click", saveModelConfig);
+document.getElementById("saveSampleDatasetPath").addEventListener("click", saveSampleDatasetPath);
 loadStats();
 loadSettings();
 loadFinalItems();
