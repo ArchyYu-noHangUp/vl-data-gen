@@ -258,10 +258,7 @@ function renderMetaFields(body, item) {
   grid.className = "meta-grid";
 
   renderLabeledField(grid, "题目编号", (label) => {
-    const value = document.createElement("div");
-    value.className = "readonly-value";
-    value.textContent = item.id;
-    label.appendChild(value);
+    renderTextInput(label, item, "id");
   });
   renderLabeledField(grid, "题目类型", (label) => {
     renderSelectWithCustom(label, item, "type", questionTypes);
