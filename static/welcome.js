@@ -1,5 +1,16 @@
 const message = document.getElementById("authMessage");
 
+function disableStoredInputHints() {
+  for (const input of document.querySelectorAll("[data-no-autofill]")) {
+    input.value = "";
+    input.setAttribute("readonly", "readonly");
+    input.addEventListener("focus", () => {
+      input.removeAttribute("readonly");
+      input.value = "";
+    });
+  }
+}
+
 async function applyAppearance() {
   const resp = await fetch("/api/appearance");
   const data = await resp.json().catch(() => ({}));
@@ -25,5 +36,7 @@ async function checkSession() {
   }
 }
 
+window.addEventListener("pageshow", disableStoredInputHints);
+disableStoredInputHints();
 applyAppearance().catch(() => {});
 checkSession().catch(() => {});

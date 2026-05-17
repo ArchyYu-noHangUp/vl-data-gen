@@ -13,15 +13,15 @@
         <p id="welcomeSubtitle">面向电力分析评测数据的采集、校核、标注与归档。</p>
       </section>
       <section class="auth-panel">
-        <form id="loginForm" class="auth-form" method="post" action="/login-form">
-          <label><span>用户名</span><input id="loginUser" name="username" autocomplete="username" /></label>
-          <label><span>密码</span><input id="loginPass" name="password" type="password" autocomplete="current-password" /></label>
+        <form id="loginForm" class="auth-form" method="post" action="/login-form" autocomplete="off">
+          <label><span>用户名</span><input id="loginUser" name="username" autocomplete="off" autocapitalize="off" spellcheck="false" readonly data-no-autofill="1" /></label>
+          <label><span>密码</span><input id="loginPass" name="password" type="password" autocomplete="new-password" readonly data-no-autofill="1" /></label>
           <button type="submit">登录系统</button>
         </form>
         <a class="register-link" href="/register">注册新账户</a>
         <p id="authMessage" class="auth-message"></p>
       </section>
     </main>
-    <script src="/static/welcome.js?v=20260515-2"></script>
+    <script src="/static/welcome.js?v=20260517-2"></script>
   </body>
 </html>

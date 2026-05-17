@@ -13,17 +13,17 @@
         <p id="registerSubtitle">注册账户后进入数据采集与标注工作台。</p>
       </section>
       <section class="auth-panel">
-        <form id="registerForm" class="auth-form">
-          <label><span>用户名</span><input id="registerUser" autocomplete="username" /></label>
-          <label><span>密码</span><input id="registerPass" type="password" autocomplete="new-password" /></label>
-          <label><span>重复密码</span><input id="registerRepeat" type="password" autocomplete="new-password" /></label>
-          <label><span>注册码</span><input id="registerCode" /></label>
+        <form id="registerForm" class="auth-form" autocomplete="off">
+          <label><span>用户名</span><input id="registerUser" autocomplete="off" autocapitalize="off" spellcheck="false" readonly data-no-autofill="1" /></label>
+          <label><span>密码</span><input id="registerPass" type="password" autocomplete="new-password" readonly data-no-autofill="1" /></label>
+          <label><span>重复密码</span><input id="registerRepeat" type="password" autocomplete="new-password" readonly data-no-autofill="1" /></label>
+          <label><span>注册码</span><input id="registerCode" autocomplete="off" autocapitalize="off" spellcheck="false" readonly data-no-autofill="1" /></label>
           <button type="submit">注册并进入系统</button>
         </form>
         <a class="register-link" href="/">返回登录</a>
         <p id="authMessage" class="auth-message"></p>
       </section>
     </main>
-    <script src="/static/register.js?v=20260517-1"></script>
+    <script src="/static/register.js?v=20260517-2"></script>
   </body>
 </html>

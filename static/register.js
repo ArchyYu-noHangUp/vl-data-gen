@@ -1,6 +1,17 @@
 const registerForm = document.getElementById("registerForm");
 const message = document.getElementById("authMessage");
 
+function disableStoredInputHints() {
+  for (const input of document.querySelectorAll("[data-no-autofill]")) {
+    input.value = "";
+    input.setAttribute("readonly", "readonly");
+    input.addEventListener("focus", () => {
+      input.removeAttribute("readonly");
+      input.value = "";
+    });
+  }
+}
+
 async function postJson(url, payload) {
   const resp = await fetch(url, {
     method: "POST",
@@ -27,3 +38,6 @@ registerForm.addEventListener("submit", async (event) => {
     message.textContent = err.message;
   }
 });
+
+window.addEventListener("pageshow", disableStoredInputHints);
+disableStoredInputHints();
