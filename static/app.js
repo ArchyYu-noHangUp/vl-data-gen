@@ -15,7 +15,7 @@ async function initUser() {
     $("versionBadge").hidden = true;
     $("userInfo").hidden = true;
   }
-  $("versionBadge").textContent = `版本 ${data.version || "0.2.2"}`;
+  $("versionBadge").textContent = `版本 ${data.version || "0.2.3"}`;
   $("userInfo").textContent = `${data.user.username}，上传问题图片与答案图片，自动生成题目文件夹和校核结果。`;
   $("manageLink").hidden = data.user.role !== "admin";
 }

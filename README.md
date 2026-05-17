@@ -2,7 +2,9 @@
 
 面向电力分析评测数据的采集、校核、标注与归档。系统支持上传题目图片和答案图片，调用多模态大模型抽取题干、答案、题图，人工校核后生成结构化样本数据。
 
-当前版本：`0.2.2`
+当前版本：`0.2.3`
+
+版本更新内容见 [CHANGELOG.md](CHANGELOG.md)。
 
 默认管理员账户：
 
@@ -53,7 +55,7 @@ sudo bash scripts/install_and_deploy.sh
 或使用本机已生成的镜像包：
 
 ```bash
-gzip -dc docker_release/vl-data-gen-0.2.2.tar.gz | docker load
+gzip -dc docker_release/vl-data-gen-0.2.3.tar.gz | docker load
 docker run -d \
   --name vl-data-gen \
   --restart unless-stopped \
@@ -61,7 +63,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.2.2
+  vl-data-gen:0.2.3
 ```
 
 Docker 详细说明见 [docker_release/docker启动说明.md](docker_release/docker启动说明.md)。
@@ -138,7 +140,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.2.2
+  vl-data-gen:0.2.3
 ```
 
 ## 注意事项
