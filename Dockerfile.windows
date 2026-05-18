@@ -1,0 +1,32 @@
+# escape=`
+FROM python:3.11-windowsservercore-ltsc2022
+
+SHELL ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+
+ENV PYTHONDONTWRITEBYTECODE=1 `
+    PYTHONUNBUFFERED=1 `
+    PORT=8000 `
+    WEB_WORKERS=4 `
+    WORKER_CONCURRENCY=12
+
+WORKDIR C:\app
+
+RUN $ErrorActionPreference = 'Stop'; `
+    $ProgressPreference = 'SilentlyContinue'; `
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; `
+    Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile 'C:\ffmpeg.zip'; `
+    Expand-Archive -Path 'C:\ffmpeg.zip' -DestinationPath 'C:\ffmpeg'; `
+    $ffmpegRoot = (Get-ChildItem -Path 'C:\ffmpeg' -Directory | Select-Object -First 1).FullName; `
+    Copy-Item -Path (Join-Path $ffmpegRoot 'bin\ffmpeg.exe') -Destination 'C:\Windows\System32\ffmpeg.exe'; `
+    Copy-Item -Path (Join-Path $ffmpegRoot 'bin\ffprobe.exe') -Destination 'C:\Windows\System32\ffprobe.exe'; `
+    Remove-Item -Path 'C:\ffmpeg.zip','C:\ffmpeg' -Recurse -Force
+
+COPY requirements.txt .
+RUN python -m pip install --no-cache-dir --upgrade pip; `
+    python -m pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\app\\docker\\entrypoint.windows.ps1"]

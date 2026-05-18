@@ -1,6 +1,7 @@
 import base64
 import json
 import mimetypes
+import os
 import re
 import shutil
 import time
@@ -23,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
 RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
-TEMP_FINALS = Path("/tmp/vl-data-gen-final")
+TEMP_FINALS = Path(os.environ.get("VL_TEMP_FINALS", str(ROOT / "temp_final")))
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
 APP_VERSION = "0.3.0"
 
