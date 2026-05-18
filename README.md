@@ -4,6 +4,10 @@
 
 当前版本：`0.3.0`
 
+当前分支：`windows-server`
+
+本分支用于 Windows Server 裸机部署和 Windows Containers 镜像部署。Linux 裸机和 Linux Docker 部署请使用 `main` 分支。
+
 版本更新内容见 [CHANGELOG.md](CHANGELOG.md)。
 
 默认管理员账户：
@@ -27,14 +31,26 @@
 - 管理员配置样本集保存绝对路径
 - 管理员下载校核后的 zip 数据
 - 标准外观 / 简洁外观切换
-- Docker 部署和裸机部署
+- Windows Server 裸机部署
+- Windows Containers 镜像部署
 
 ## 推荐部署方式
 
-### 裸机一键部署
+### Windows Server 裸机部署
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/ArchyYu-noHangUp/vl-data-gen/main/scripts/install_bare_metal.sh | sudo bash
+先安装以下依赖：
+
+- Python 3.11
+- Git for Windows
+- ffmpeg，并将 `ffmpeg.exe` 加入 `PATH`
+
+然后执行：
+
+```powershell
+git clone -b windows-server https://github.com/ArchyYu-noHangUp/vl-data-gen.git C:\vl-data-gen
+cd C:\vl-data-gen
+powershell -ExecutionPolicy Bypass -File scripts\windows\install.ps1
+powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 ```
 
 部署完成后访问：
@@ -43,47 +59,45 @@ curl -fsSL https://raw.githubusercontent.com/ArchyYu-noHangUp/vl-data-gen/main/s
 http://服务器IP:8000
 ```
 
-详细说明见 [裸机部署说明.md](裸机部署说明.md)。
+详细说明见 [Windows_Server_部署说明.md](Windows_Server_部署说明.md)。
 
-### Docker 一键部署
+### Windows Containers 部署
 
-在已安装 Docker 的服务器上：
+Windows 容器镜像只能在 Docker 的 Windows Containers 模式下构建和运行：
 
-```bash
-git clone https://github.com/ArchyYu-noHangUp/vl-data-gen.git
-cd vl-data-gen
-sudo bash scripts/install_and_deploy.sh
+```powershell
+docker build -f Dockerfile.windows -t vl-data-gen:0.3.0-windows .
+docker save -o docker_release\vl-data-gen-0.3.0-windows.tar vl-data-gen:0.3.0-windows
 ```
 
-或使用本机已生成的镜像包：
+启动：
 
-```bash
-gzip -dc docker_release/vl-data-gen-0.3.0.tar.gz | docker load
-docker run -d \
-  --name vl-data-gen \
-  --restart unless-stopped \
-  -p 8000:8000 \
-  -v /data/vl-data-gen/runs:/app/runs \
-  -v /data/vl-data-gen/data:/app/data \
-  -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.3.0
+```powershell
+docker run -d `
+  --name vl-data-gen `
+  --restart unless-stopped `
+  -p 8000:8000 `
+  -v C:\vl-data-gen\runs:C:\app\runs `
+  -v C:\vl-data-gen\data:C:\app\data `
+  -v C:\vl-data-gen\logs:C:\app\logs `
+  vl-data-gen:0.3.0-windows
 ```
 
-Docker 详细说明见 [docker_release/docker启动说明.md](docker_release/docker启动说明.md)。
+Docker 详细说明见 [docker_release/windows-docker启动说明.md](docker_release/windows-docker启动说明.md)。
 
 ## 本地开发启动
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-mkdir -p data runs logs sample_dataset
-.venv/bin/uvicorn vl_app.main:app --host 0.0.0.0 --port 8000 --reload
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+mkdir data,runs,logs,sample_dataset,temp_final
+.\.venv\Scripts\python.exe -m uvicorn vl_app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 另开终端启动 worker：
 
-```bash
-.venv/bin/python -m vl_app.worker
+```powershell
+.\.venv\Scripts\python.exe -m vl_app.worker
 ```
 
 访问：
@@ -97,9 +111,9 @@ http://127.0.0.1:8000
 - `vl_app/`：FastAPI 应用、数据库、任务队列、worker
 - `static/`：前端页面和样式
 - `pic_files/`：欢迎页背景、机器人图标等静态素材
-- `docker/`：Docker 入口脚本和 nginx 配置
+- `docker/`：Docker 入口脚本
 - `docker_release/`：Docker 镜像构建脚本和启动说明
-- `scripts/`：一键部署脚本
+- `scripts/windows/`：Windows Server 安装和启动脚本
 - `runs/`：运行时上传文件和中间结果，默认不提交
 - `data/`：SQLite 数据库，默认不提交
 - `logs/`：日志，默认不提交
@@ -107,43 +121,18 @@ http://127.0.0.1:8000
 
 ## 配置参数
 
-### 裸机部署
-
-`scripts/install_bare_metal.sh` 支持：
-
 - `PORT`：Web 端口，默认 `8000`
 - `WEB_WORKERS`：Web 进程数，默认 `4`
-- `WORKER_CONCURRENCY`：worker 数，默认 `4`
-- `APP_ROOT`：安装根目录，默认 `/opt/vl-data-gen`
-- `BRANCH`：Git 分支，默认 `main`
+- `WORKER_CONCURRENCY`：worker 数，裸机默认 `4`，Windows 容器默认 `12`
+- `VL_TEMP_FINALS`：临时校核结果目录，默认 `temp_final`
 
 示例：
 
-```bash
-sudo PORT=8080 WEB_WORKERS=8 WORKER_CONCURRENCY=16 bash scripts/install_bare_metal.sh
-```
-
-### Docker 部署
-
-Docker 默认：
-
-- `WEB_WORKERS=4`
-- `WORKER_CONCURRENCY=12`
-- `PORT=8000`
-
-示例：
-
-```bash
-docker run -d \
-  --name vl-data-gen \
-  --restart unless-stopped \
-  -p 8000:8000 \
-  -e WEB_WORKERS=8 \
-  -e WORKER_CONCURRENCY=16 \
-  -v /data/vl-data-gen/runs:/app/runs \
-  -v /data/vl-data-gen/data:/app/data \
-  -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.3.0
+```powershell
+$env:PORT="8080"
+$env:WEB_WORKERS="4"
+$env:WORKER_CONCURRENCY="8"
+powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 ```
 
 ## 注意事项
@@ -151,3 +140,4 @@ docker run -d \
 - `data/`、`runs/`、`logs/`、`sample_dataset/` 属于运行数据，默认不提交 Git。
 - `users.json` 和 SQLite 数据库不提交 Git，避免泄露账户和会话信息。
 - API Key 不会设置默认值，请由管理员在系统管理页统一配置。
+- 仓库为 public 后，Windows Server 可以直接 clone；不再需要 GitHub Token。
