@@ -4,6 +4,10 @@
 
 当前版本：`0.3.0`
 
+当前分支：`main`
+
+本分支用于 Linux 裸机部署和 Linux Docker 部署。Windows Server 裸机和 Windows Containers 部署请使用 [`windows-server`](https://github.com/ArchyYu-noHangUp/vl-data-gen/tree/windows-server) 分支。
+
 版本更新内容见 [CHANGELOG.md](CHANGELOG.md)。
 
 默认管理员账户：
@@ -31,7 +35,22 @@
 
 ## 推荐部署方式
 
+### Windows Server
+
+请切换到 `windows-server` 分支：
+
+```powershell
+git clone -b windows-server https://github.com/ArchyYu-noHangUp/vl-data-gen.git C:\vl-data-gen
+cd C:\vl-data-gen
+powershell -ExecutionPolicy Bypass -File scripts\windows\install.ps1
+powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
+```
+
+Windows 详细说明见 [`windows-server` 分支](https://github.com/ArchyYu-noHangUp/vl-data-gen/tree/windows-server)。
+
 ### 裸机一键部署
+
+适用于 Linux 服务器：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ArchyYu-noHangUp/vl-data-gen/main/scripts/install_bare_metal.sh | sudo bash
@@ -47,7 +66,7 @@ http://服务器IP:8000
 
 ### Docker 一键部署
 
-在已安装 Docker 的服务器上：
+在已安装 Linux Docker 的服务器上：
 
 ```bash
 git clone https://github.com/ArchyYu-noHangUp/vl-data-gen.git
@@ -148,6 +167,8 @@ docker run -d \
 
 ## 注意事项
 
+- `main` 分支不适用于 Windows 裸机部署；Windows Server 请使用 `windows-server` 分支。
+- 仓库已设为 public，Linux 和 Windows 服务器均可直接 clone 或使用 raw 链接部署。
 - `data/`、`runs/`、`logs/`、`sample_dataset/` 属于运行数据，默认不提交 Git。
 - `users.json` 和 SQLite 数据库不提交 Git，避免泄露账户和会话信息。
 - API Key 不会设置默认值，请由管理员在系统管理页统一配置。
