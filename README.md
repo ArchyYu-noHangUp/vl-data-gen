@@ -2,7 +2,7 @@
 
 面向电力分析评测数据的采集、校核、标注与归档。系统支持上传题目图片和答案图片，调用多模态大模型抽取题干、答案、题图，人工校核后生成结构化样本数据。
 
-当前版本：`0.3.0`
+当前版本：`0.4.0`
 
 当前分支：`windows-server`
 
@@ -27,9 +27,9 @@
 - 问题和答案 LaTeX 预览校核
 - 题图裁剪、替换和归档
 - 校核助手对话
-- 管理员数据管理、样本集状态查看
+- 管理员样本数据状态查看、样本列表和样本审核
 - 管理员配置样本集保存绝对路径
-- 管理员下载校核后的 zip 数据
+- 管理员下载已审核样本数据
 - 标准外观 / 简洁外观切换
 - Windows Server 裸机部署
 - Windows Containers 镜像部署
@@ -42,7 +42,7 @@
 
 - Python 3.11
 - Git for Windows
-- ffmpeg，并将 `ffmpeg.exe` 加入 `PATH`
+- ffmpeg。若系统未安装，`scripts\windows\install.ps1` 会自动下载到项目内 `tools\ffmpeg`。
 
 然后执行：
 
@@ -66,8 +66,8 @@ http://服务器IP:8000
 Windows 容器镜像只能在 Docker 的 Windows Containers 模式下构建和运行：
 
 ```powershell
-docker build -f Dockerfile.windows -t vl-data-gen:0.3.0-windows .
-docker save -o docker_release\vl-data-gen-0.3.0-windows.tar vl-data-gen:0.3.0-windows
+docker build -f Dockerfile.windows -t vl-data-gen:0.4.0-windows .
+docker save -o docker_release\vl-data-gen-0.4.0-windows.tar vl-data-gen:0.4.0-windows
 ```
 
 启动：
@@ -80,7 +80,7 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.3.0-windows
+  vl-data-gen:0.4.0-windows
 ```
 
 Docker 详细说明见 [docker_release/windows-docker启动说明.md](docker_release/windows-docker启动说明.md)。
@@ -137,6 +137,8 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 
 ## 注意事项
 
+- `main` 分支不适用于 Windows 裸机部署；Windows Server 请使用 `windows-server` 分支。
+- 仓库已设为 public，Linux 和 Windows 服务器均可直接 clone 或使用 raw 链接部署。
 - `data/`、`runs/`、`logs/`、`sample_dataset/` 属于运行数据，默认不提交 Git。
 - `users.json` 和 SQLite 数据库不提交 Git，避免泄露账户和会话信息。
 - API Key 不会设置默认值，请由管理员在系统管理页统一配置。

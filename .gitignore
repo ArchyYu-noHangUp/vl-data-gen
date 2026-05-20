@@ -16,6 +16,8 @@ runs/
 data/
 logs/
 sample_dataset/
+temp_final/
+tools/
 *.log
 
 # Local account/session data

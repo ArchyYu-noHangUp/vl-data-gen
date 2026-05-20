@@ -34,6 +34,37 @@ DEFAULT_MODEL = "qwen3.5-27b"
 JOB_STATUS = {}
 SESSIONS = {}
 REGISTER_CODE = "225-m1"
+_TOOL_CACHE = {}
+
+
+def external_tool(name):
+    env_key = f"{name.upper()}_BIN"
+    configured = os.environ.get(env_key)
+    candidates = []
+    if configured:
+        candidates.append(Path(configured))
+    found = shutil.which(name)
+    if found:
+        candidates.append(Path(found))
+    exe_name = f"{name}.exe" if os.name == "nt" else name
+    candidates.extend(
+        [
+            ROOT / "tools" / "ffmpeg" / "bin" / exe_name,
+            ROOT / "tools" / "ffmpeg" / exe_name,
+        ]
+    )
+    cached = _TOOL_CACHE.get(name)
+    if cached and Path(cached).exists():
+        return cached
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            resolved = str(candidate)
+            _TOOL_CACHE[name] = resolved
+            return resolved
+    raise RuntimeError(
+        f"未找到 {name} 可执行文件。Windows Server 裸机部署请重新执行 scripts\\windows\\install.ps1，"
+        f"或将 {env_key} 指向 {exe_name} 的完整路径。"
+    )
 
 
 QUESTION_PROMPT = """你是电力系统考试题图片信息抽取助手。
@@ -364,7 +395,7 @@ def parse_json_text(text):
 
 def ffprobe_size(path):
     cmd = [
-        "ffprobe",
+        external_tool("ffprobe"),
         "-v",
         "error",
         "-select_streams",
@@ -399,7 +430,7 @@ def compress_image(src_path, dest_path=None, max_bytes=500 * 1024):
         )
         for quality in qualities:
             cmd = [
-                "ffmpeg",
+                external_tool("ffmpeg"),
                 "-y",
                 "-i",
                 str(src_path),
@@ -492,7 +523,7 @@ def crop_region(image_path, bbox, out_path, ref_size=None):
     crop_w = x2 - x1
     crop_h = y2 - y1
     cmd = [
-        "ffmpeg",
+        external_tool("ffmpeg"),
         "-y",
         "-i",
         str(image_path),
@@ -568,7 +599,7 @@ def expand_answer_bbox(bbox, x_pad_ratio=0.06, y_pad_ratio=0.12):
 def read_gray_pixels(image_path):
     width, height = ffprobe_size(image_path)
     raw = subprocess.check_output(
-        ["ffmpeg", "-v", "error", "-i", str(image_path), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        [external_tool("ffmpeg"), "-v", "error", "-i", str(image_path), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
     )
     return width, height, raw
 

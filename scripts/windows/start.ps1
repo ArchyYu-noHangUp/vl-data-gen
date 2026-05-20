@@ -8,6 +8,15 @@ $env:WEB_WORKERS = if ($env:WEB_WORKERS) { $env:WEB_WORKERS } else { "4" }
 $env:WORKER_CONCURRENCY = if ($env:WORKER_CONCURRENCY) { $env:WORKER_CONCURRENCY } else { "4" }
 $env:VL_TEMP_FINALS = if ($env:VL_TEMP_FINALS) { $env:VL_TEMP_FINALS } else { Join-Path $Root "temp_final" }
 
+$localFfmpegBin = Join-Path $Root "tools\ffmpeg\bin"
+$localFfmpeg = Join-Path $localFfmpegBin "ffmpeg.exe"
+$localFfprobe = Join-Path $localFfmpegBin "ffprobe.exe"
+if ((Test-Path $localFfmpeg) -and (Test-Path $localFfprobe)) {
+    $env:PATH = "$localFfmpegBin;$env:PATH"
+    $env:FFMPEG_BIN = $localFfmpeg
+    $env:FFPROBE_BIN = $localFfprobe
+}
+
 New-Item -ItemType Directory -Force -Path `
     (Join-Path $Root "data"), `
     (Join-Path $Root "runs"), `

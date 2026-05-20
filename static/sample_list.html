@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>样本列表</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260520-2" />
+    <script>
+      window.MathJax = { tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["$$", "$$"]] }, svg: { fontCache: "global" } };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>样本列表</h1>
+            <p id="sampleListMeta">正在加载...</p>
+          </div>
+          <div class="actions">
+            <a class="button secondary" href="/manage">返回系统管理</a>
+            <a id="downloadInfo" class="button secondary" href="#">下载样本信息</a>
+          </div>
+        </header>
+        <table class="admin-table data-table sample-list-table">
+          <thead>
+            <tr><th>序号</th><th>数据来源</th><th>样本编号</th><th>创建用户</th><th>创建时间</th><th>题目</th><th>状态</th><th>备注</th></tr>
+          </thead>
+          <tbody id="sampleListBody"></tbody>
+        </table>
+      </section>
+    </main>
+    <div id="remarkDialog" class="modal-backdrop" hidden>
+      <section class="modal-panel">
+        <h2>编辑备注</h2>
+        <textarea id="remarkEditor"></textarea>
+        <div class="actions">
+          <button id="remarkSave" type="button">保存</button>
+          <button id="remarkCancel" class="secondary-action" type="button">取消</button>
+        </div>
+      </section>
+    </div>
+    <script src="/static/sample_list.js?v=20260520-6"></script>
+  </body>
+</html>

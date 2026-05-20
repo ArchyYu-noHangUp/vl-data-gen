@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>样本审核</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260520-2" />
+    <script>
+      window.MathJax = { tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["$$", "$$"]] }, svg: { fontCache: "global" } };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>样本审核</h1>
+            <p id="reviewMeta">正在加载...</p>
+          </div>
+          <div class="actions">
+            <button id="saveButton" type="button">保存校核</button>
+            <button id="completeButton" type="button">完成并关闭</button>
+            <button id="discardButton" class="secondary-action" type="button">放弃并关闭</button>
+          </div>
+        </header>
+        <section id="reviewBody" class="preview"></section>
+      </section>
+    </main>
+    <script src="/static/sample_review.js?v=20260520-5"></script>
+  </body>
+</html>

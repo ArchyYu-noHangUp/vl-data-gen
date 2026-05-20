@@ -1,4 +1,6 @@
 import base64
+import csv
+import io
 import json
 import mimetypes
 import os
@@ -26,7 +28,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path(os.environ.get("VL_TEMP_FINALS", str(ROOT / "temp_final")))
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -48,9 +50,7 @@ def current_user(request: Request):
     user = db.user_for_session(sid)
     if user:
         return user
-    expired_username = db.pop_expired_session_username(sid)
-    if expired_username:
-        cleanup_user_intermediate(expired_username)
+    db.pop_expired_session_username(sid)
     return None
 
 
@@ -138,6 +138,28 @@ def status_counts(job_id):
     }
 
 
+def job_payload(job_id):
+    payload = legacy.job_status_payload(job_id)
+    job = db.get_job(job_id)
+    if not payload and not job:
+        return None
+    if not payload:
+        payload = {"job_id": job_id, "status": job.get("status", "processing"), "logs": []}
+    if job:
+        db_status = job.get("status", "")
+        if db_status in {"uploading", "queued", "running"}:
+            payload["status"] = "processing"
+        elif db_status:
+            payload["status"] = db_status
+    if (RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md").exists():
+        payload.update(status_counts(job_id))
+    return payload
+
+
+def is_final_completed(job_id):
+    return bool(legacy.read_job_meta(job_id).get("final_completed"))
+
+
 def final_figure_name(figure_rel):
     stem = safe_folder_name(Path(str(figure_rel)).stem)
     return f"{stem}.jpg"
@@ -184,29 +206,132 @@ def replace_markdown_source(md_text, source):
     return re.sub(r"(#（六）题目来源\n)(.*?)(\n?$)", rf"\1{source}\3", md_text, flags=re.S)
 
 
+SAMPLE_INFO_FIELDS = ["序号", "数据来源", "样本编号", "创建用户", "创建时间", "状态", "备注"]
+
+
+def sample_source_dir(data_source):
+    return sample_dataset_root() / safe_folder_name(data_source or "数据来源")
+
+
+def sample_info_path(source_dir):
+    return source_dir / f"{source_dir.name}.csv"
+
+
+def read_sample_info(source_dir):
+    path = sample_info_path(source_dir)
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as f:
+        return [dict(row) for row in csv.DictReader(f)]
+
+
+def write_sample_info(source_dir, rows):
+    source_dir.mkdir(parents=True, exist_ok=True)
+    with sample_info_path(source_dir).open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=SAMPLE_INFO_FIELDS)
+        writer.writeheader()
+        for index, row in enumerate(rows, start=1):
+            item = {field: str(row.get(field, "")) for field in SAMPLE_INFO_FIELDS}
+            item["序号"] = str(index)
+            writer.writerow(item)
+
+
+def upsert_sample_info(source_dir, data_source, sample_id, username, created_at, status="未审核", remark=""):
+    rows = read_sample_info(source_dir)
+    found = False
+    for row in rows:
+        if row.get("样本编号") == sample_id:
+            row.update({"数据来源": data_source, "创建用户": username, "创建时间": created_at, "状态": status, "备注": remark})
+            found = True
+            break
+    if not found:
+        rows.append(
+            {
+                "序号": "",
+                "数据来源": data_source,
+                "样本编号": sample_id,
+                "创建用户": username,
+                "创建时间": created_at,
+                "状态": status,
+                "备注": remark,
+            }
+        )
+    write_sample_info(source_dir, rows)
+
+
+def unique_sample_dir(source_dir, qid):
+    base = safe_folder_name(qid)
+    target = source_dir / base
+    if not target.exists():
+        return target
+    index = 2
+    while True:
+        candidate = source_dir / f"{base}_{index}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def normalize_sample_source_dir(source_dir):
+    for child in list(source_dir.iterdir()) if source_dir.exists() else []:
+        if not child.is_dir() or (child / "data.md").exists():
+            continue
+        for nested in list(child.iterdir()):
+            if not nested.is_dir() or not (nested / "data.md").exists():
+                continue
+            target = source_dir / nested.name
+            if target.exists():
+                target = unique_sample_dir(source_dir, nested.name)
+            shutil.move(str(nested), str(target))
+        try:
+            child.rmdir()
+        except OSError:
+            pass
+
+
+def sync_sample_info(source_dir):
+    normalize_sample_source_dir(source_dir)
+    rows = [row for row in read_sample_info(source_dir) if (source_dir / safe_folder_name(row.get("样本编号", ""))).exists()]
+    known = {row.get("样本编号", "") for row in rows}
+    for sample_dir in sorted([path for path in source_dir.iterdir() if path.is_dir()], key=lambda path: legacy.question_sort_key(path.name)):
+        if sample_dir.name not in known:
+            rows.append(
+                {
+                    "序号": "",
+                    "数据来源": source_dir.name,
+                    "样本编号": sample_dir.name,
+                    "创建用户": "",
+                    "创建时间": "",
+                    "状态": "未审核",
+                    "备注": "",
+                }
+            )
+    rows = sorted(rows, key=lambda row: legacy.question_sort_key(row.get("样本编号", "")))
+    write_sample_info(source_dir, rows)
+    return rows
+
+
 def create_final_records(job_id, username):
     md_path = RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md"
     if not md_path.exists():
         raise FileNotFoundError("test_data.md 不存在")
     records = legacy.parse_markdown_records(md_path.read_text(encoding="utf-8"))
     generated_at = time.strftime("%Y-%m-%d %H:%M:%S")
-    temp_root = TEMP_FINALS / job_id
-    if temp_root.exists():
-        shutil.rmtree(temp_root)
-    db.delete_pending_final_items(job_id)
-    temp_root.mkdir(parents=True, exist_ok=True)
+    saved = []
     for qid in sorted(records, key=legacy.question_sort_key):
         item = records[qid]
         data_source = item.get("source", "").strip() or "数据来源"
-        chapter = question_chapter(qid)
-        item_dir = temp_root / safe_folder_name(qid)
+        source_dir = sample_source_dir(data_source)
+        item_dir = unique_sample_dir(source_dir, qid)
         item_dir.mkdir(parents=True, exist_ok=True)
         figure_map = copy_item_figures(job_id, item, item_dir)
         final_item = dict(item)
         final_item["question"] = question_with_figure_links(item.get("question", ""), figure_map)
         (item_dir / "data.md").write_text(legacy.question_markdown(final_item), encoding="utf-8")
-        db.add_final_item(job_id, data_source, chapter, qid, username, generated_at, str(item_dir))
-    update_job_meta(job_id, {"final_completed": True, "final_completed_at": generated_at})
+        upsert_sample_info(source_dir, data_source, item_dir.name, username, generated_at, status="未审核")
+        saved.append(str(item_dir))
+    db.delete_pending_final_items(job_id)
+    update_job_meta(job_id, {"final_completed": True, "final_completed_at": generated_at, "sample_dirs": saved})
     return generated_at
 
 
@@ -234,22 +359,101 @@ def sample_dataset_status():
     sample_root = sample_dataset_root()
     if not sample_root.exists():
         return items
-    for source_dir in sorted([path for path in sample_root.iterdir() if path.is_dir()], key=lambda p: p.name):
-        chapters = [path for path in source_dir.iterdir() if path.is_dir()]
-        q_count = 0
-        chapter_names = []
-        for chapter_dir in sorted(chapters, key=lambda p: legacy.question_sort_key(p.name)):
-            chapter_names.append(chapter_dir.name)
-            q_count += sum(1 for child in chapter_dir.iterdir() if child.is_dir())
+    for index, source_dir in enumerate(sorted([path for path in sample_root.iterdir() if path.is_dir()], key=lambda p: p.name), start=1):
+        rows = sync_sample_info(source_dir)
+        pending = sum(1 for row in rows if row.get("状态", "未审核") == "未审核")
+        approved = sum(1 for row in rows if row.get("状态") == "已审核")
         items.append(
             {
+                "index": index,
                 "data_source": source_dir.name,
-                "chapter_count": len(chapter_names),
-                "chapters": chapter_names,
-                "question_count": q_count,
+                "pending_count": pending,
+                "approved_count": approved,
             }
         )
     return items
+
+
+def sample_record(source, sample_id):
+    source_dir = sample_source_dir(source)
+    sample_dir = (source_dir / safe_folder_name(sample_id)).resolve()
+    try:
+        sample_dir.relative_to(source_dir.resolve())
+    except ValueError:
+        return None
+    data_path = sample_dir / "data.md"
+    if not data_path.exists():
+        return None
+    rows = read_sample_info(source_dir)
+    info = next((row for row in rows if row.get("样本编号") == sample_dir.name), {})
+    item = parse_sample_data_md(data_path.read_text(encoding="utf-8"))
+    figures = [path.name for path in sorted(sample_dir.glob("*.jpg"))]
+    return {
+        "source": source_dir.name,
+        "sample_id": sample_dir.name,
+        "info": info,
+        "type": item.get("type", ""),
+        "difficulty": item.get("difficulty", ""),
+        "question": item.get("question", ""),
+        "answer": item.get("answer", ""),
+        "figures": figures,
+    }
+
+
+def parse_sample_data_md(text):
+    mapping = {
+        "（一）题目类型": "type",
+        "（二）题目难度": "difficulty",
+        "（三）问题": "question",
+        "（四）答案": "answer",
+        "（五）解答过程": "solution",
+        "（六）题目来源": "source",
+    }
+    data = {value: "" for value in mapping.values()}
+    current = None
+    for line in text.splitlines():
+        match = re.match(r"^#\s*(（[一二三四五六]）.+)$", line.strip())
+        if match:
+            current = mapping.get(match.group(1).strip())
+            if current:
+                data[current] = []
+            continue
+        if current:
+            data[current].append(line)
+    return {key: "\n".join(value).strip() if isinstance(value, list) else value for key, value in data.items()}
+
+
+def sample_data_markdown(item):
+    return "\n".join(
+        [
+            "#（一）题目类型",
+            str(item.get("type", "")).strip(),
+            "#（二）题目难度",
+            str(item.get("difficulty", "")).strip(),
+            "#（三）问题",
+            str(item.get("question", "")).strip(),
+            "#（四）答案",
+            str(item.get("answer", "")).strip(),
+            "#（五）解答过程",
+            str(item.get("solution", "解答过程暂略")).strip() or "解答过程暂略",
+            "#（六）题目来源",
+            str(item.get("source", "")).strip(),
+            "",
+        ]
+    )
+
+
+def update_sample_status(source, sample_id, status, remark=None):
+    source_dir = sample_source_dir(source)
+    rows = read_sample_info(source_dir)
+    for row in rows:
+        if row.get("样本编号") == sample_id:
+            row["状态"] = status
+            if remark is not None:
+                row["备注"] = remark
+            write_sample_info(source_dir, rows)
+            return True
+    return False
 
 
 def cleanup_user_intermediate(username):
@@ -263,6 +467,21 @@ def cleanup_user_intermediate(username):
         if job and job.get("status") in {"queued", "running"}:
             continue
         shutil.rmtree(job_dir, ignore_errors=True)
+
+
+def reset_user_cache(username):
+    job_ids = set(db.account_job_ids(username))
+    for job_dir in RUNS.iterdir() if RUNS.exists() else []:
+        if not job_dir.is_dir():
+            continue
+        meta = legacy.read_job_meta(job_dir.name)
+        if meta.get("owner") == username:
+            job_ids.add(job_dir.name)
+    db.reset_account_cache(username, job_ids)
+    for job_id in job_ids:
+        shutil.rmtree(RUNS / job_id, ignore_errors=True)
+        shutil.rmtree(TEMP_FINALS / job_id, ignore_errors=True)
+    return sorted(job_ids)
 
 
 def update_job_meta(job_id, data):
@@ -404,9 +623,6 @@ def manage_page(request: Request):
 
 @app.get("/logout")
 def logout(request: Request):
-    user = current_user(request)
-    if user:
-        cleanup_user_intermediate(user["username"])
     db.delete_session(request.cookies.get("sid", ""))
     response = RedirectResponse("/", status_code=302)
     clear_sid_cookie(response)
@@ -455,13 +671,17 @@ async def api_register(payload: dict):
 
 @app.post("/api/logout")
 def api_logout(request: Request):
-    user = current_user(request)
-    if user:
-        cleanup_user_intermediate(user["username"])
     db.delete_session(request.cookies.get("sid", ""))
     response = JSONResponse({"ok": True})
     clear_sid_cookie(response)
     return response
+
+
+@app.post("/api/reset-cache")
+def reset_cache(request: Request):
+    user = require_user(request)
+    job_ids = reset_user_cache(user["username"])
+    return {"ok": True, "cleared_jobs": job_ids}
 
 
 @app.get("/api/me")
@@ -572,24 +792,35 @@ def status(job_id: str, request: Request):
     user = require_user(request)
     if not can_access(user, job_id):
         return JSONResponse({"error": "无权访问该任务"}, status_code=403)
-    payload = legacy.job_status_payload(job_id)
-    job = db.get_job(job_id)
+    payload = job_payload(job_id)
     if not payload:
         return JSONResponse({"error": "任务不存在"}, status_code=404)
-    if job and payload.get("status") != "completed":
-        payload["status"] = "processing" if job["status"] in {"queued", "running"} else job["status"]
-    if (RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md").exists():
-        payload.update(status_counts(job_id))
     return payload
+
+
+@app.get("/api/current-job")
+def current_job(request: Request):
+    user = require_user(request)
+    for job in db.list_recent_jobs_for_owner(user["username"]):
+        if is_final_completed(job["job_id"]):
+            continue
+        payload = job_payload(job["job_id"])
+        if payload:
+            payload["restored"] = True
+            return payload
+    return JSONResponse({"error": "暂无可恢复任务"}, status_code=404)
 
 
 @app.get("/api/latest-result")
 def latest_result(request: Request):
     user = require_user(request)
-    latest = legacy.latest_completed_job(user)
-    if not latest:
-        return JSONResponse({"error": "暂无已完成任务"}, status_code=404)
-    return latest
+    for job in db.list_recent_jobs_for_owner(user["username"]):
+        if is_final_completed(job["job_id"]):
+            continue
+        payload = job_payload(job["job_id"])
+        if payload and payload.get("status") == "completed":
+            return payload
+    return JSONResponse({"error": "暂无已完成任务"}, status_code=404)
 
 
 @app.get("/api/admin/stats")
@@ -718,6 +949,147 @@ def admin_sample_status(request: Request):
     return {"items": sample_dataset_status()}
 
 
+@app.get("/api/admin/sample-sources/{source}/samples")
+def admin_sample_list(source: str, request: Request):
+    require_admin(request)
+    source_dir = sample_source_dir(source)
+    rows = sync_sample_info(source_dir)
+    items = []
+    for index, row in enumerate(rows, start=1):
+        sample_id = row.get("样本编号", "")
+        record = sample_record(source, sample_id)
+        if not record:
+            continue
+        items.append(
+            {
+                "index": index,
+                "data_source": row.get("数据来源", source_dir.name),
+                "sample_id": sample_id,
+                "username": row.get("创建用户", ""),
+                "created_at": row.get("创建时间", ""),
+                "status": row.get("状态", "未审核"),
+                "remark": row.get("备注", ""),
+                "question": record.get("question", ""),
+                "answer": record.get("answer", ""),
+                "figures": record.get("figures", []),
+            }
+        )
+    return {"source": source_dir.name, "items": items, "info_download_url": f"/api/admin/sample-sources/{quote(source_dir.name)}/info"}
+
+
+@app.get("/api/admin/sample-sources/{source}/info")
+def admin_sample_info_download(source: str, request: Request):
+    require_admin(request)
+    source_dir = sample_source_dir(source)
+    rows = sync_sample_info(source_dir)
+    if not rows:
+        raise HTTPException(status_code=404, detail="样本信息表不存在")
+    buffer = io.StringIO()
+    buffer.write("\ufeff")
+    writer = csv.DictWriter(buffer, fieldnames=SAMPLE_INFO_FIELDS)
+    writer.writeheader()
+    for row in rows:
+        item = {field: str(row.get(field, "")) for field in SAMPLE_INFO_FIELDS}
+        item["样本编号"] = f'="{item["样本编号"]}"'
+        writer.writerow(item)
+    filename = f"{source_dir.name}.csv"
+    return Response(
+        buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@app.get("/api/admin/sample-sources/{source}/download")
+def admin_sample_source_download(source: str, request: Request):
+    require_admin(request)
+    source_dir = sample_source_dir(source)
+    rows = [row for row in read_sample_info(source_dir) if row.get("状态") == "已审核"]
+    zip_path = source_dir / f"{source_dir.name}_已审核样本.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+    with legacy.zipfile.ZipFile(zip_path, "w", compression=legacy.zipfile.ZIP_DEFLATED) as zf:
+        for row in rows:
+            sample_dir = source_dir / safe_folder_name(row.get("样本编号", ""))
+            if not sample_dir.exists():
+                continue
+            for path in sample_dir.rglob("*"):
+                if path.is_file():
+                    zf.write(path, path.relative_to(source_dir.parent))
+    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip")
+
+
+@app.get("/api/admin/sample-sources/{source}/samples/{sample_id}")
+def admin_sample_detail(source: str, sample_id: str, request: Request):
+    require_admin(request)
+    record = sample_record(source, sample_id)
+    if not record:
+        return JSONResponse({"error": "样本不存在"}, status_code=404)
+    return record
+
+
+@app.post("/api/admin/sample-sources/{source}/samples/{sample_id}/save")
+async def admin_sample_save(source: str, sample_id: str, request: Request):
+    require_admin(request)
+    source_dir = sample_source_dir(source)
+    sample_dir = source_dir / safe_folder_name(sample_id)
+    if not sample_dir.exists():
+        return JSONResponse({"error": "样本不存在"}, status_code=404)
+    record = sample_record(source, sample_id)
+    if not record:
+        return JSONResponse({"error": "样本不存在"}, status_code=404)
+    form = await request.form()
+    payload_text = str(form.get("payload", "{}"))
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        return JSONResponse({"error": "保存内容格式错误"}, status_code=400)
+    item = {
+        "type": payload.get("type", record.get("type", "")),
+        "difficulty": payload.get("difficulty", record.get("difficulty", "")),
+        "question": payload.get("question", record.get("question", "")),
+        "answer": payload.get("answer", record.get("answer", "")),
+        "solution": payload.get("solution", "解答过程暂略"),
+        "source": payload.get("source", record.get("source", source_dir.name)),
+    }
+    (sample_dir / "data.md").write_text(sample_data_markdown(item), encoding="utf-8")
+    saved_figures = []
+    for key, value in form.multi_items():
+        if key != "figure" or not getattr(value, "filename", None) or not getattr(value, "file", None):
+            continue
+        filename = legacy.safe_output_image_name(sample_dir.name, len(saved_figures), "figure", value.filename)
+        with (sample_dir / filename).open("wb") as f:
+            shutil.copyfileobj(value.file, f)
+        saved_figures.append(filename)
+    return {"ok": True, "figures": [path.name for path in sorted(sample_dir.glob('*.jpg'))]}
+
+
+@app.post("/api/admin/sample-sources/{source}/samples/{sample_id}/status")
+async def admin_sample_set_status(source: str, sample_id: str, request: Request, payload: dict):
+    require_admin(request)
+    status = str(payload.get("status", "")).strip()
+    if status not in {"未审核", "已审核", "已放弃"}:
+        return JSONResponse({"error": "状态无效"}, status_code=400)
+    remark = str(payload.get("remark", "")).strip() if "remark" in payload else None
+    if not update_sample_status(source, safe_folder_name(sample_id), status, remark):
+        return JSONResponse({"error": "样本不存在"}, status_code=404)
+    return {"ok": True}
+
+
+@app.get("/sample-asset/{source}/{sample_id}/{filename}")
+def sample_asset(source: str, sample_id: str, filename: str, request: Request):
+    require_admin(request)
+    sample_dir = (sample_source_dir(source) / safe_folder_name(sample_id)).resolve()
+    target = (sample_dir / safe_folder_name(filename)).resolve()
+    try:
+        target.relative_to(sample_dir)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="非法路径")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(target, media_type=mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+
+
 @app.post("/api/admin/final-jobs/{job_id}/update")
 async def admin_update_final_job(job_id: str, request: Request, payload: dict):
     require_admin(request)
@@ -756,14 +1128,14 @@ def admin_save_final_job(job_id: str, request: Request):
         temp_dir = Path(item["temp_dir"])
         if not temp_dir.exists():
             continue
-        target = sample_dataset_root() / safe_folder_name(item["data_source"]) / safe_folder_name(item["chapter"]) / safe_folder_name(item["qid"])
+        target = sample_dataset_root() / safe_folder_name(item["data_source"]) / safe_folder_name(item["qid"])
         target.mkdir(parents=True, exist_ok=True)
         data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
         if data_text:
             (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
         for figure_path in temp_dir.glob("*.jpg"):
             shutil.copyfile(figure_path, target / figure_path.name)
-        saved_root = str(target.parent.parent)
+        saved_root = str(target.parent)
     db.mark_final_job(job_id, "saved", saved_root)
     cleanup_job_artifacts(job_id)
     return {"ok": True}

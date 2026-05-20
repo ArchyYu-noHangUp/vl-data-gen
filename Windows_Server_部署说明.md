@@ -9,7 +9,7 @@
 - Windows Server 2019/2022
 - Python 3.11
 - Git for Windows
-- ffmpeg，并将 `ffmpeg.exe` 加入 `PATH`
+- ffmpeg。若系统未安装，安装脚本会自动下载到项目内 `tools\ffmpeg`，启动脚本会自动配置本次服务进程使用。
 
 ### 拉取代码
 
@@ -51,8 +51,8 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 Windows 容器镜像只能在 Docker 的 Windows Containers 模式下构建和运行。
 
 ```powershell
-docker build -f Dockerfile.windows -t vl-data-gen:0.3.0-windows .
-docker save -o docker_release\vl-data-gen-0.3.0-windows.tar vl-data-gen:0.3.0-windows
+docker build -f Dockerfile.windows -t vl-data-gen:0.4.0-windows .
+docker save -o docker_release\vl-data-gen-0.4.0-windows.tar vl-data-gen:0.4.0-windows
 ```
 
 启动：
@@ -71,11 +71,12 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.3.0-windows
+  vl-data-gen:0.4.0-windows
 ```
 
 ## 说明
 
 - 默认只保留 SQLite 队列回退能力，不强制依赖 Redis。
 - 系统运行数据在 `data`、`runs`、`logs`、`sample_dataset`、`temp_final` 目录中。
+- 如果处理时报 `[WinError 2] The system cannot find the file specified`，通常是 `ffmpeg/ffprobe` 未安装或未被服务进程识别。请重新执行 `scripts\windows\install.ps1` 后再执行 `scripts\windows\start.ps1`。
 - 管理员账号仍由系统初始化创建，公开文档不展示默认密码。

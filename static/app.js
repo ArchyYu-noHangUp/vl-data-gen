@@ -1,7 +1,21 @@
 const $ = (id) => document.getElementById(id);
+let activePoll = null;
+
+window.addEventListener("storage", (event) => {
+  if (event.key === "vlDataGenReviewCompleted" && event.newValue) {
+    window.location.reload();
+  }
+});
+
+window.addEventListener("message", (event) => {
+  if (event.data?.type === "vl-data-gen-review-completed") {
+    window.location.reload();
+  }
+});
 
 async function initUser() {
   $("manageLink").hidden = true;
+  $("processBtn").disabled = true;
   const resp = await fetch("/api/me");
   const data = await resp.json();
   if (!data.user) {
@@ -15,10 +29,11 @@ async function initUser() {
     $("versionBadge").hidden = true;
     $("userInfo").hidden = true;
   }
-  $("versionBadge").textContent = `版本 ${data.version || "0.3.0"}`;
+  $("versionBadge").textContent = `版本 ${data.version || "0.4.0"}`;
   $("userInfo").textContent = `${data.user.username}，上传问题图片与答案图片，自动生成题目文件夹和校核结果。`;
   $("manageLink").hidden = data.user.role !== "admin";
   $("modelConfigWarning").hidden = Boolean(data.model_configured);
+  await restoreCurrentJob();
 }
 
 function renderList(input, output) {
@@ -37,6 +52,35 @@ $("question_images").addEventListener("change", () => {
 
 $("answer_images").addEventListener("change", () => {
   renderList($("answer_images"), $("answerList"));
+});
+
+$("resetBtn").addEventListener("click", async () => {
+  if (!window.confirm("确定重置当前账户的数据处理缓存并清空当前页面吗？")) {
+    return;
+  }
+  $("resetBtn").disabled = true;
+  $("processBtn").disabled = true;
+  try {
+    const resp = await fetch("/api/reset-cache", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await readJsonResponse(resp);
+    if (!resp.ok) {
+      if (resp.status === 401) {
+        window.location.href = "/";
+        return;
+      }
+      throw new Error(formatError(data, `重置失败（HTTP ${resp.status}）`));
+    }
+    clearPageState();
+    window.location.reload();
+  } catch (err) {
+    $("log").textContent = `重置失败：${err.message}\n`;
+    $("resetBtn").disabled = false;
+    $("processBtn").disabled = false;
+  }
 });
 
 $("suggestionBtn").addEventListener("click", async () => {
@@ -72,6 +116,9 @@ $("suggestionBtn").addEventListener("click", async () => {
 });
 
 $("processBtn").addEventListener("click", async () => {
+  if (activePoll) {
+    return;
+  }
   const btn = $("processBtn");
   const log = $("log");
   const result = $("result");
@@ -106,15 +153,72 @@ $("processBtn").addEventListener("click", async () => {
     if (data.status === "completed") {
       showResult(data);
     } else {
-      data = await pollJob(data.job_id);
+      activePoll = pollJob(data.job_id);
+      data = await activePoll;
+      activePoll = null;
       showResult(data);
     }
   } catch (err) {
     log.textContent += `错误：${err.message}\n`;
   } finally {
+    activePoll = null;
     btn.disabled = false;
   }
 });
+
+async function restoreCurrentJob() {
+  try {
+    const resp = await fetch("/api/current-job");
+    const data = await readJsonResponse(resp);
+    if (resp.status === 404) {
+      return;
+    }
+    if (!resp.ok) {
+      throw new Error(formatError(data, "恢复任务失败"));
+    }
+    if (data.status === "completed") {
+      renderLogs(data);
+      $("log").textContent += "已恢复最近完成的数据处理任务。\n";
+      showResult(data);
+      return;
+    }
+    if (data.status === "failed") {
+      renderLogs(data);
+      $("log").textContent += `最近的数据处理任务失败：${data.error || "处理失败"}\n`;
+      return;
+    }
+    $("processBtn").disabled = true;
+    renderLogs(data);
+    $("log").textContent += "已恢复正在处理的数据处理任务，继续显示处理过程。\n";
+    activePoll = pollJob(data.job_id);
+    const completed = await activePoll;
+    activePoll = null;
+    showResult(completed);
+  } catch (err) {
+    $("log").textContent += `恢复任务失败：${err.message}\n`;
+  } finally {
+    activePoll = null;
+    $("processBtn").disabled = false;
+  }
+}
+
+function clearPageState() {
+  activePoll = null;
+  $("data_source").value = "";
+  $("question_images").value = "";
+  $("answer_images").value = "";
+  $("questionList").innerHTML = "";
+  $("answerList").innerHTML = "";
+  $("summary").textContent = "";
+  $("resultLink").href = "#";
+  $("result").hidden = true;
+  $("log").textContent = "";
+  try {
+    localStorage.removeItem("vlDataGenReviewCompleted");
+  } catch (err) {
+    // Storage can be disabled in private contexts.
+  }
+}
 
 function renderLogs(data) {
   const logs = data?.logs || [];
@@ -125,9 +229,12 @@ function showResult(data) {
   if (data.status === "failed") {
     throw new Error(data.error || "处理失败");
   }
+  const questionCount = data.question_count ?? 0;
+  const figureCount = data.figure_count ?? 0;
+  const answerCount = data.answer_count ?? 0;
   $("log").textContent += "处理完成。\n";
-  $("summary").textContent = `数据处理ID：${data.job_id}；题目数量：${data.question_count}，题图数量：${data.figure_count}，答案文本数量：${data.answer_count}`;
-  $("resultLink").href = data.result_url;
+  $("summary").textContent = `数据处理ID：${data.job_id}；题目数量：${questionCount}，题图数量：${figureCount}，答案文本数量：${answerCount}`;
+  $("resultLink").href = data.result_url || "#";
   $("result").hidden = false;
 }
 
