@@ -434,8 +434,27 @@ async function completeReview() {
       throw new Error(formatError(data, "完成校核失败"));
     }
     meta.textContent = "完成校核成功，该数据处理ID已形成最终结果";
+    notifyReviewCompleted();
+    window.setTimeout(() => {
+      window.close();
+      meta.textContent = "完成校核成功。请关闭当前页面，数据处理页将自动刷新。";
+    }, 300);
   } finally {
     completeButton.disabled = false;
+  }
+}
+
+function notifyReviewCompleted() {
+  const message = { type: "vl-data-gen-review-completed", job_id: jobId, at: Date.now() };
+  try {
+    window.opener?.postMessage(message, window.location.origin);
+  } catch (err) {
+    // Ignore cross-window notification failures; localStorage event is the fallback.
+  }
+  try {
+    localStorage.setItem("vlDataGenReviewCompleted", JSON.stringify(message));
+  } catch (err) {
+    // Some browsers disable storage in private contexts.
   }
 }
 

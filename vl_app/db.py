@@ -337,6 +337,46 @@ def get_job(job_id):
     return dict(row) if row else None
 
 
+def list_recent_jobs_for_owner(owner, limit=20):
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            select * from jobs
+            where owner = ?
+            order by
+                case status
+                    when 'uploading' then 0
+                    when 'queued' then 0
+                    when 'running' then 0
+                    when 'completed' then 1
+                    when 'failed' then 2
+                    else 3
+                end,
+                updated_at desc,
+                created_at desc
+            limit ?
+            """,
+            (owner, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def account_job_ids(username):
+    with connect() as conn:
+        rows = conn.execute("select job_id from jobs where owner = ?", (username,)).fetchall()
+        final_rows = conn.execute("select distinct job_id from final_items where username = ?", (username,)).fetchall()
+    return {row["job_id"] for row in rows + final_rows}
+
+
+def reset_account_cache(username, job_ids):
+    with connect() as conn:
+        for job_id in job_ids:
+            conn.execute("delete from task_queue where job_id = ?", (job_id,))
+            conn.execute("delete from final_items where job_id = ?", (job_id,))
+            conn.execute("delete from jobs where job_id = ?", (job_id,))
+        conn.execute("delete from final_items where username = ?", (username,))
+
+
 def list_users():
     with connect() as conn:
         rows = conn.execute("select username, role from users order by username").fetchall()

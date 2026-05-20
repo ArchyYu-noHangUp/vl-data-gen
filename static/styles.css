@@ -245,6 +245,77 @@ body.simple-appearance .topbar h1 {
   color: #0b513d;
 }
 
+.sample-list-table th {
+  white-space: nowrap;
+}
+
+.sample-list-table td {
+  vertical-align: top;
+}
+
+.sample-question-cell {
+  min-width: 460px;
+}
+
+.sample-question-box {
+  border: 1px solid #d8e2e6;
+  border-radius: 6px;
+  background: #fbfdfc;
+}
+
+.sample-part-title {
+  margin: 10px 0 6px;
+  font-weight: 700;
+  color: #0b513d;
+}
+
+.sample-part-title:first-child {
+  margin-top: 0;
+}
+
+.sample-math-content {
+  white-space: pre-wrap;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 31, 35, 0.42);
+  padding: 24px;
+}
+
+.modal-panel {
+  width: min(560px, 100%);
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px;
+  box-shadow: 0 24px 80px rgba(23, 32, 38, 0.24);
+}
+
+.modal-panel h2 {
+  margin-bottom: 12px;
+}
+
+.modal-panel textarea {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+}
+
+.file-action {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 12px;
+  cursor: pointer;
+}
+
+.file-action input {
+  display: none;
+}
+
 .admin-table input,
 .admin-table select {
   min-width: 130px;

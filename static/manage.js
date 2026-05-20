@@ -135,10 +135,37 @@ async function saveSampleDatasetPath() {
     if (!resp.ok) throw new Error(data.error || "保存失败");
     document.getElementById("sampleDatasetPathInput").value = data.sample_dataset_path || samplePath;
     status.textContent = "已保存并移动样本集";
-    await loadSampleStatus();
+    await loadSampleDataStatus();
   } catch (err) {
     status.textContent = err.message;
   }
+}
+
+async function loadSampleDataStatus() {
+  const resp = await fetch("/api/admin/sample-status");
+  const data = await resp.json().catch(() => ({}));
+  const body = document.getElementById("sampleDataStatusBody");
+  if (!resp.ok) {
+    body.innerHTML = `<tr><td colspan="5">${data.error || "加载失败"}</td></tr>`;
+    return;
+  }
+  const items = data.items || [];
+  if (!items.length) {
+    body.innerHTML = `<tr><td colspan="5">暂无样本数据</td></tr>`;
+    return;
+  }
+  body.innerHTML = items
+    .map(
+      (item) => `
+        <tr>
+          <td>${item.index}</td>
+          <td><a href="/static/sample_list.html?source=${encodeURIComponent(item.data_source)}">${escapeHtml(item.data_source)}</a></td>
+          <td>${item.pending_count}</td>
+          <td>${item.approved_count}</td>
+          <td><a class="button secondary" href="/api/admin/sample-sources/${encodeURIComponent(item.data_source)}/download">下载</a></td>
+        </tr>`
+    )
+    .join("");
 }
 
 async function loadFinalItems() {
@@ -319,6 +346,5 @@ document.getElementById("saveModelConfig").addEventListener("click", saveModelCo
 document.getElementById("saveSampleDatasetPath").addEventListener("click", saveSampleDatasetPath);
 loadStats();
 loadSettings();
-loadFinalItems();
-loadSampleStatus();
+loadSampleDataStatus();
 loadSuggestions();
