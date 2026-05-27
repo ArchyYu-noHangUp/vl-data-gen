@@ -27,7 +27,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path("/tmp/vl-data-gen-final")
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -1019,6 +1019,32 @@ def admin_sample_source_download(source: str, request: Request):
     return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip")
 
 
+@app.get("/api/admin/sample-sources/{source}/samples/{sample_id}/download")
+def admin_sample_download(source: str, sample_id: str, request: Request):
+    require_admin(request)
+    source_dir = sample_source_dir(source)
+    sample_dir = (source_dir / safe_folder_name(sample_id)).resolve()
+    try:
+        sample_dir.relative_to(source_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=404, detail="样本不存在")
+    if not sample_dir.exists() or not sample_dir.is_dir():
+        raise HTTPException(status_code=404, detail="样本不存在")
+    buffer = io.BytesIO()
+    with legacy.zipfile.ZipFile(buffer, "w", compression=legacy.zipfile.ZIP_DEFLATED) as zf:
+        for path in sample_dir.rglob("*"):
+            if path.is_file():
+                arcname = "/".join([source_dir.name, sample_dir.name, *path.relative_to(sample_dir).parts])
+                zf.write(path, arcname)
+    buffer.seek(0)
+    filename = f"{sample_dir.name}.zip"
+    return Response(
+        buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
 @app.get("/api/admin/sample-sources/{source}/samples/{sample_id}")
 def admin_sample_detail(source: str, sample_id: str, request: Request):
     require_admin(request)
@@ -1038,6 +1064,8 @@ async def admin_sample_save(source: str, sample_id: str, request: Request):
     record = sample_record(source, sample_id)
     if not record:
         return JSONResponse({"error": "样本不存在"}, status_code=404)
+    if record.get("info", {}).get("状态") == "已审核":
+        return JSONResponse({"error": "已审核样本不能继续修改"}, status_code=400)
     form = await request.form()
     payload_text = str(form.get("payload", "{}"))
     try:
@@ -1071,6 +1099,9 @@ async def admin_sample_set_status(source: str, sample_id: str, request: Request,
     if status not in {"未审核", "已审核", "已放弃"}:
         return JSONResponse({"error": "状态无效"}, status_code=400)
     remark = str(payload.get("remark", "")).strip() if "remark" in payload else None
+    record = sample_record(source, sample_id)
+    if record and record.get("info", {}).get("状态") == "已审核" and status != "已审核":
+        return JSONResponse({"error": "已审核样本不能继续修改"}, status_code=400)
     if not update_sample_status(source, safe_folder_name(sample_id), status, remark):
         return JSONResponse({"error": "样本不存在"}, status_code=404)
     return {"ok": True}

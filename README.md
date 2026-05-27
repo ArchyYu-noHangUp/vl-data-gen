@@ -2,7 +2,7 @@
 
 面向电力分析评测数据的采集、校核、标注与归档。系统支持上传题目图片和答案图片，调用多模态大模型抽取题干、答案、题图，人工校核后生成结构化样本数据。
 
-当前版本：`0.4.0`
+当前版本：`0.4.1`
 
 当前分支：`main`
 
@@ -27,9 +27,9 @@
 - 问题和答案 LaTeX 预览校核
 - 题图裁剪、替换和归档
 - 校核助手对话
-- 管理员数据管理、样本集状态查看
+- 管理员样本数据状态查看、样本列表和样本审核
 - 管理员配置样本集保存绝对路径
-- 管理员下载校核后的 zip 数据
+- 管理员下载已审核样本数据和单题样本 zip
 - 标准外观 / 简洁外观切换
 - Docker 部署和裸机部署
 
@@ -77,7 +77,7 @@ sudo bash scripts/install_and_deploy.sh
 或使用本机已生成的镜像包：
 
 ```bash
-gzip -dc docker_release/vl-data-gen-0.4.0.tar.gz | docker load
+gzip -dc docker_release/vl-data-gen-0.4.1.tar.gz | docker load
 docker run -d \
   --name vl-data-gen \
   --restart unless-stopped \
@@ -85,7 +85,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.4.0
+  vl-data-gen:0.4.1
 ```
 
 Docker 详细说明见 [docker_release/docker启动说明.md](docker_release/docker启动说明.md)。
@@ -162,7 +162,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.4.0
+  vl-data-gen:0.4.1
 ```
 
 ## 注意事项

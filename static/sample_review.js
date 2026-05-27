@@ -9,6 +9,10 @@ const pendingTypeset = new Set();
 let typesetTimer = null;
 let typesetWaits = 0;
 
+function isApproved() {
+  return record?.info?.["状态"] === "已审核";
+}
+
 function escapeHtml(text) {
   return String(text || "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
@@ -68,11 +72,13 @@ function flushTypeset() {
 
 function editor(title, id, value) {
   const preview = id === "answer" ? answerMath(value) : mathText(value);
-  return `<section class="preview-section"><h2>${title}</h2><div class="preview-body"><strong>预览</strong><div class="latex-preview" id="${id}Preview">${preview}</div><textarea id="${id}">${escapeHtml(value)}</textarea></div></section>`;
+  const readonly = isApproved() ? " readonly" : "";
+  return `<section class="preview-section"><h2>${title}</h2><div class="preview-body"><strong>预览</strong><div class="latex-preview" id="${id}Preview">${preview}</div><textarea id="${id}"${readonly}>${escapeHtml(value)}</textarea></div></section>`;
 }
 
 function render() {
   const figures = (record.figures || []).map((fig) => `<img src="${asset(fig)}" alt="">`).join("");
+  const uploadControl = isApproved() ? "" : `<label class="secondary-action file-action">上传图片<input id="figureUpload" type="file" accept="image/*" multiple></label><div id="figureUploadList"></div>`;
   body.innerHTML = `
     <article class="preview-card">
       ${editor("问题", "question", record.question)}
@@ -80,8 +86,7 @@ function render() {
         <h2>题图</h2>
         <div class="preview-body">
           <div class="image-list" id="figureList">${figures}</div>
-          <label class="secondary-action file-action">上传图片<input id="figureUpload" type="file" accept="image/*" multiple></label>
-          <div id="figureUploadList"></div>
+          ${uploadControl}
         </div>
       </section>
       ${editor("答案", "answer", record.answer)}
@@ -92,10 +97,13 @@ function render() {
       queueTypeset(document.getElementById(`${id}Preview`));
     });
   }
-  document.getElementById("figureUpload").addEventListener("change", (event) => {
+  document.getElementById("figureUpload")?.addEventListener("change", (event) => {
     figureFiles = Array.from(event.target.files || []);
     document.getElementById("figureUploadList").textContent = figureFiles.map((file) => file.name).join("、");
   });
+  document.getElementById("saveButton").disabled = isApproved();
+  document.getElementById("completeButton").disabled = isApproved();
+  document.getElementById("discardButton").disabled = isApproved();
   queueTypeset(body);
 }
 
@@ -104,11 +112,12 @@ async function load() {
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.error || "加载失败");
   record = data;
-  meta.textContent = `${data.source} / ${data.sample_id}`;
+  meta.textContent = `${data.source} / ${data.sample_id}${isApproved() ? " / 已审核，不可修改" : ""}`;
   render();
 }
 
 async function save() {
+  if (isApproved()) throw new Error("已审核样本不能继续修改");
   const payload = { ...record, question: document.getElementById("question").value, answer: document.getElementById("answer").value };
   const form = new FormData();
   form.append("payload", JSON.stringify(payload));
@@ -127,6 +136,7 @@ async function save() {
 }
 
 async function setStatus(status, remark = "") {
+  if (isApproved() && status !== "已审核") throw new Error("已审核样本不能继续修改");
   const resp = await fetch(`/api/admin/sample-sources/${encodeURIComponent(source)}/samples/${encodeURIComponent(sample)}/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
