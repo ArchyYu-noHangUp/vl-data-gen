@@ -27,7 +27,7 @@ cannot load linux image on windows
 在项目根目录执行：
 
 ```powershell
-docker build -f Dockerfile.windows -t vl-data-gen:0.4.0-windows .
+docker build -f Dockerfile.windows -t vl-data-gen:0.4.1-windows .
 ```
 
 或使用脚本：
@@ -39,13 +39,13 @@ powershell -ExecutionPolicy Bypass -File docker_release\build-windows-image.ps1
 默认导出文件：
 
 ```text
-docker_release\vl-data-gen-0.4.0-windows.tar
+docker_release\vl-data-gen-0.4.1-windows.tar
 ```
 
 ## 加载镜像
 
 ```powershell
-docker load -i D:\docker_release\vl-data-gen-0.4.0-windows.tar
+docker load -i D:\docker_release\vl-data-gen-0.4.1-windows.tar
 ```
 
 注意：Windows Docker 的 `docker load -i` 建议直接使用 `.tar`，不要使用 `.tar.gz`。
@@ -66,7 +66,7 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.4.0-windows
+  vl-data-gen:0.4.1-windows
 ```
 
 访问：
@@ -87,7 +87,7 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.4.0-windows
+  vl-data-gen:0.4.1-windows
 ```
 
 ## 常用命令
