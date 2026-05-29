@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-IMAGE_NAME="${IMAGE_NAME:-vl-data-gen:0.4.1}"
-OUTPUT="${OUTPUT:-docker_release/vl-data-gen-0.4.1.tar.gz}"
+IMAGE_NAME="${IMAGE_NAME:-vl-data-gen:0.4.2}"
+OUTPUT="${OUTPUT:-docker_release/vl-data-gen-0.4.2.tar.gz}"
 
 docker build -t "$IMAGE_NAME" .
 docker save "$IMAGE_NAME" | gzip > "$OUTPUT"

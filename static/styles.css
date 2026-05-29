@@ -254,7 +254,9 @@ body.simple-appearance .topbar h1 {
 }
 
 .sample-question-cell {
-  min-width: 260px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
 }
 
 .sample-question-box {
@@ -265,9 +267,20 @@ body.simple-appearance .topbar h1 {
 
 .sample-question-summary {
   display: inline-block;
-  max-width: 360px;
+  max-width: 190px;
+  min-height: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
   color: #203f39;
+  font: inherit;
   line-height: 1.5;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .compact-button {
@@ -325,6 +338,42 @@ body.simple-appearance .topbar h1 {
   width: 100%;
   min-height: 140px;
   resize: vertical;
+}
+
+.sample-detail-modal {
+  width: min(920px, 100%);
+  max-height: min(84vh, 780px);
+  overflow: auto;
+}
+
+.modal-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.modal-title-row h2 {
+  margin-bottom: 0;
+}
+
+.sample-detail-body {
+  display: grid;
+  gap: 16px;
+}
+
+.sample-detail-section {
+  border: 1px solid #d8e2e6;
+  border-radius: 6px;
+  padding: 14px;
+  background: #fbfdfc;
+}
+
+.sample-detail-section h3 {
+  margin: 0 0 10px;
+  color: #0b513d;
+  font-size: 16px;
 }
 
 .file-action {
@@ -696,7 +745,7 @@ output div {
 
 .image-edit-controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 0.7fr);
+  grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 0.7fr);
   gap: 12px;
   align-items: center;
 }
@@ -705,6 +754,14 @@ output div {
   color: #4a575f;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.danger-action {
+  min-height: 34px;
+  border: 1px solid #e6b3ad;
+  background: #fff1ef;
+  color: #9d2b1f;
+  padding: 0 12px;
 }
 
 .editor-label {

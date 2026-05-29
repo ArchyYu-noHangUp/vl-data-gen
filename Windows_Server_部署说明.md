@@ -51,8 +51,8 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 Windows 容器镜像只能在 Docker 的 Windows Containers 模式下构建和运行。
 
 ```powershell
-docker build -f Dockerfile.windows -t vl-data-gen:0.4.1-windows .
-docker save -o docker_release\vl-data-gen-0.4.1-windows.tar vl-data-gen:0.4.1-windows
+docker build -f Dockerfile.windows -t vl-data-gen:0.4.2-windows .
+docker save -o docker_release\vl-data-gen-0.4.2-windows.tar vl-data-gen:0.4.2-windows
 ```
 
 启动：
@@ -71,7 +71,7 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.4.1-windows
+  vl-data-gen:0.4.2-windows
 ```
 
 ## 说明

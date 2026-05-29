@@ -2,7 +2,7 @@
 
 面向电力分析评测数据的采集、校核、标注与归档。系统支持上传题目图片和答案图片，调用多模态大模型抽取题干、答案、题图，人工校核后生成结构化样本数据。
 
-当前版本：`0.4.1`
+当前版本：`0.4.2`
 
 当前分支：`windows-server`
 
@@ -66,8 +66,8 @@ http://服务器IP:8000
 Windows 容器镜像只能在 Docker 的 Windows Containers 模式下构建和运行：
 
 ```powershell
-docker build -f Dockerfile.windows -t vl-data-gen:0.4.1-windows .
-docker save -o docker_release\vl-data-gen-0.4.1-windows.tar vl-data-gen:0.4.1-windows
+docker build -f Dockerfile.windows -t vl-data-gen:0.4.2-windows .
+docker save -o docker_release\vl-data-gen-0.4.2-windows.tar vl-data-gen:0.4.2-windows
 ```
 
 启动：
@@ -80,7 +80,7 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.4.1-windows
+  vl-data-gen:0.4.2-windows
 ```
 
 Docker 详细说明见 [docker_release/windows-docker启动说明.md](docker_release/windows-docker启动说明.md)。
