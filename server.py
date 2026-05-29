@@ -943,6 +943,12 @@ def save_result_edits(job_id, items, files_by_key, make_package=True):
         raise FileNotFoundError("test_data.md 不存在")
 
     existing = parse_markdown_records(md_path.read_text(encoding="utf-8"))
+    existing_figures = {
+        str(figure).strip()
+        for item in existing.values()
+        for figure in item.get("figures", [])
+        if str(figure).strip()
+    }
     updated = {}
     for idx, item in enumerate(items):
         qid = str(item.get("id", "")).strip()
@@ -984,6 +990,21 @@ def save_result_edits(job_id, items, files_by_key, make_package=True):
             "solution": str(item.get("solution", previous.get("solution", ""))).strip(),
             "source": str(item.get("source", previous.get("source", ""))).strip(),
         }
+
+    kept_figures = {
+        str(figure).strip()
+        for item in updated.values()
+        for figure in item.get("figures", [])
+        if str(figure).strip()
+    }
+    for rel_path in existing_figures - kept_figures:
+        target = (output_dir / rel_path).resolve()
+        try:
+            target.relative_to(output_dir.resolve())
+        except ValueError:
+            continue
+        if target.exists() and target.is_file():
+            target.unlink()
 
     md_path.write_text(build_markdown(updated), encoding="utf-8")
     sources = [item.get("source", "").strip() for item in updated.values() if item.get("source", "").strip()]

@@ -27,7 +27,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path("/tmp/vl-data-gen-final")
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

@@ -294,6 +294,26 @@ function renderImageList(body, item, itemIndex) {
     path.textContent = line || "暂无图片";
     controls.appendChild(path);
 
+    if (line) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "danger-action";
+      deleteButton.textContent = "删除题图";
+      deleteButton.addEventListener("click", () => {
+        if (!window.confirm("确定删除这张题图吗？保存校核后生效。")) {
+          return;
+        }
+        item.figures.splice(imageIndex, 1);
+        for (const key of Array.from(replacementFiles.keys())) {
+          if (key.startsWith(`figure:${itemIndex}:`)) {
+            replacementFiles.delete(key);
+          }
+        }
+        renderCurrentItems();
+      });
+      controls.appendChild(deleteButton);
+    }
+
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -311,6 +331,13 @@ function renderImageList(body, item, itemIndex) {
     row.appendChild(controls);
     body.appendChild(row);
   }
+}
+
+function renderCurrentItems() {
+  preview.innerHTML = "";
+  editableItems.forEach((item, itemIndex) => {
+    preview.appendChild(renderItem(item, itemIndex));
+  });
 }
 
 function renderItem(item, itemIndex) {
@@ -345,9 +372,7 @@ function render(markdown) {
     editableItems.push(parseBlock(block));
   }
 
-  editableItems.forEach((item, itemIndex) => {
-    preview.appendChild(renderItem(item, itemIndex));
-  });
+  renderCurrentItems();
 
   meta.textContent = `共 ${editableItems.length} 道题，可编辑题型、难度、问题、答案、题图和来源`;
 }

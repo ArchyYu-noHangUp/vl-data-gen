@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>样本列表</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260520-2" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260528-1" />
     <script>
       window.MathJax = { tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["$$", "$$"]] }, svg: { fontCache: "global" } };
     </script>
@@ -31,6 +31,15 @@
         </table>
       </section>
     </main>
-    <script src="/static/sample_list.js?v=20260527-2"></script>
+    <div id="questionDialog" class="modal-backdrop" hidden>
+      <section class="modal-panel sample-detail-modal">
+        <div class="modal-title-row">
+          <h2 id="questionDialogTitle">题目详情</h2>
+          <button id="questionDialogClose" type="button" class="secondary-action">关闭</button>
+        </div>
+        <div id="questionDialogBody" class="sample-detail-body"></div>
+      </section>
+    </div>
+    <script src="/static/sample_list.js?v=20260528-1"></script>
   </body>
 </html>
