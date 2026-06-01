@@ -16,22 +16,22 @@
 
 ```bash
 cd /root/vl-data-gen
-docker build -t vl-data-gen:0.4.2 .
+docker build -t vl-data-gen:0.4.3 .
 ```
 
 ## 保存镜像文件
 
 ```bash
 mkdir -p docker_release
-docker save vl-data-gen:0.4.2 | gzip > docker_release/vl-data-gen-0.4.2.tar.gz
+docker save vl-data-gen:0.4.3 | gzip > docker_release/vl-data-gen-0.4.3.tar.gz
 ```
 
 生成后的默认镜像文件：
 
 ```text
-/root/vl-data-gen/docker_release/vl-data-gen-0.4.2.tar.gz
+/root/vl-data-gen/docker_release/vl-data-gen-0.4.3.tar.gz
 大小：223M
-SHA256：d25d47b15f4dba65161ed2e1d7d2d05908e891667003f9a93108cc97853851ce
+SHA256：f95579f6b97cb3f56f48e1a5163d6c5e9a39a851d63e59568e294b453b2c6aae
 ```
 
 ## 加载镜像
@@ -39,7 +39,7 @@ SHA256：d25d47b15f4dba65161ed2e1d7d2d05908e891667003f9a93108cc97853851ce
 在目标服务器执行：
 
 ```bash
-gzip -dc vl-data-gen-0.4.2.tar.gz | docker load
+gzip -dc vl-data-gen-0.4.3.tar.gz | docker load
 ```
 
 ## 单容器启动
@@ -54,7 +54,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.4.2
+  vl-data-gen:0.4.3
 ```
 
 访问：
@@ -77,7 +77,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.4.2
+  vl-data-gen:0.4.3
 ```
 
 建议范围：
@@ -155,8 +155,8 @@ docker start vl-data-gen
 已完成：
 
 - 当前机器已安装 Docker，可按本文命令完成镜像构建
-- 镜像标签：`vl-data-gen:0.4.2`
-- 镜像文件：`/root/vl-data-gen/docker_release/vl-data-gen-0.4.2.tar.gz`
+- 镜像标签：`vl-data-gen:0.4.3`
+- 镜像文件：`/root/vl-data-gen/docker_release/vl-data-gen-0.4.3.tar.gz`
 - Dockerfile 已配置默认并发参数
 - `docker/entrypoint.sh` 已支持通过环境变量修改并发
 - `.dockerignore` 已排除运行数据、日志、账号文件和 Git 元数据
