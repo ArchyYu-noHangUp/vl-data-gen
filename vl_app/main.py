@@ -28,7 +28,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path(os.environ.get("VL_TEMP_FINALS", str(ROOT / "temp_final")))
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

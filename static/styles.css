@@ -783,6 +783,81 @@ output div {
   overflow-y: hidden;
 }
 
+.math-fallback {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.math-fallback-formula {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 1.35em;
+  padding: 0 2px;
+  font-family: "Times New Roman", "Cambria Math", serif;
+  font-size: 1.05em;
+  white-space: nowrap;
+}
+
+.math-frac {
+  display: inline-grid;
+  grid-template-rows: auto auto;
+  align-items: center;
+  justify-items: center;
+  line-height: 1.05;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+.math-frac span:first-child {
+  width: 100%;
+  border-bottom: 1px solid currentColor;
+  padding: 0 3px 1px;
+  text-align: center;
+}
+
+.math-frac span:last-child {
+  padding: 1px 3px 0;
+  text-align: center;
+}
+
+.math-sqrt::before {
+  content: "√";
+  margin-right: 1px;
+}
+
+.math-sqrt span {
+  border-top: 1px solid currentColor;
+  padding: 0 2px;
+}
+
+.math-dot {
+  position: relative;
+  display: inline-block;
+  padding-top: 0.15em;
+}
+
+.math-dot::before {
+  content: "˙";
+  position: absolute;
+  left: 50%;
+  top: -0.45em;
+  transform: translateX(-50%);
+}
+
+.math-circled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.55em;
+  height: 1.55em;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 0.2em;
+  font-size: 0.9em;
+  line-height: 1;
+}
+
 .latex-preview + .editor-label {
   margin-top: 10px;
 }
