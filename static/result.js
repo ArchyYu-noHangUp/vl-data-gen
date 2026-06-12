@@ -20,7 +20,7 @@ let chatBusy = false;
 const pendingTypeset = new Set();
 let typesetTimer = null;
 let typesetWaits = 0;
-const questionTypes = ["", "单选题", "多选题", "判断题", "简答题", "自定义"];
+const questionTypes = ["", "单选题", "多选题", "判断题", "填空题", "简答题", "自定义"];
 const difficulties = ["", "简单", "中等", "困难"];
 
 function isImagePath(line) {
@@ -50,7 +50,7 @@ function questionWithFigureLinks(question, figures) {
   }
   return question.replace(/题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*/g, (match, rawRef) => {
     const ref = rawRef.replace(/[－—]/g, "-");
-    const filename = figureMap.get(ref);
+    const filename = figureMap.get(ref) || (figureMap.size === 1 ? figureMap.values().next().value : "");
     if (!filename) {
       return match;
     }
@@ -92,7 +92,7 @@ function parseBlock(block) {
     difficulty: (data["题目难度"] || []).join("\n").trim(),
     question: questionWithFigureLinks(question, figures),
     figures,
-    answer: (data["答案"] || []).join("\n").trim(),
+    answer: normalizeAnswerEditableText((data["答案"] || []).join("\n").trim()),
     solution: (data["解答过程"] || []).join("\n").trim(),
     source: (data["题目来源"] || []).join("\n").trim(),
   };
@@ -157,6 +157,32 @@ function latexPreviewText(text, key) {
     .map((line) => {
       const trimmed = line.trim();
       return trimmed ? `\\(${trimmed}\\)` : "";
+    })
+    .join("\n");
+}
+
+function normalizeAnswerEditableText(text) {
+  return String(text || "")
+    .replace(/\\\(/g, () => "$")
+    .replace(/\\\)/g, () => "$")
+    .replace(/\\\[/g, () => "$$")
+    .replace(/\\\]/g, () => "$$")
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.includes("$") || /[\u3400-\u9fff]/.test(trimmed)) {
+        return line;
+      }
+      const looksLikeFormula =
+        /\\(?:frac|sqrt|dot|angle|Omega|varphi|Delta|text|cos|sin|tan|mu|pm|times)\b/.test(trimmed) ||
+        /[A-Za-z0-9})]\s*=\s*[A-Za-z0-9\\{(]/.test(trimmed) ||
+        /[A-Za-z]_\{?\S+/.test(trimmed);
+      if (!looksLikeFormula) {
+        return line;
+      }
+      const leading = line.match(/^\s*/)?.[0] || "";
+      const trailing = line.match(/\s*$/)?.[0] || "";
+      return `${leading}$${trimmed}$${trailing}`;
     })
     .join("\n");
 }
@@ -338,11 +364,39 @@ function renderCurrentItems() {
   editableItems.forEach((item, itemIndex) => {
     preview.appendChild(renderItem(item, itemIndex));
   });
+  meta.textContent = `共 ${editableItems.length} 道题，可编辑题型、难度、问题、答案、题图和来源`;
+}
+
+function deleteQuestion(itemIndex) {
+  if (!window.confirm("确定删除这道问题吗？保存校核后将从结果中移除。")) {
+    return;
+  }
+  editableItems.splice(itemIndex, 1);
+  editableItems.forEach((item, index) => {
+    item.id = String(index + 1);
+  });
+  replacementFiles.clear();
+  renderCurrentItems();
 }
 
 function renderItem(item, itemIndex) {
   const card = document.createElement("article");
   card.className = "preview-card";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "preview-card-toolbar";
+  const title = document.createElement("strong");
+  title.textContent = `问题 ${item.id || itemIndex + 1}`;
+  toolbar.appendChild(title);
+  if (!readonly) {
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "danger-action";
+    deleteButton.textContent = "删除问题";
+    deleteButton.addEventListener("click", () => deleteQuestion(itemIndex));
+    toolbar.appendChild(deleteButton);
+  }
+  card.appendChild(toolbar);
 
   let pair = section("基础信息");
   renderMetaFields(pair[1], item);

@@ -6,7 +6,7 @@ BRANCH="${BRANCH:-main}"
 APP_ROOT="${APP_ROOT:-/opt/vl-data-gen}"
 SOURCE_DIR="${SOURCE_DIR:-$APP_ROOT/source}"
 DATA_DIR="${DATA_DIR:-$APP_ROOT/data}"
-IMAGE_NAME="${IMAGE_NAME:-vl-data-gen:0.4.3}"
+IMAGE_NAME="${IMAGE_NAME:-vl-data-gen:0.4.4}"
 CONTAINER_NAME="${CONTAINER_NAME:-vl-data-gen}"
 PORT="${PORT:-8000}"
 WEB_WORKERS="${WEB_WORKERS:-4}"
@@ -51,7 +51,7 @@ prepare_source() {
 
 build_or_load_image() {
   cd "$SOURCE_DIR"
-  local release_tar="docker_release/vl-data-gen-0.4.3.tar.gz"
+  local release_tar="docker_release/vl-data-gen-0.4.4.tar.gz"
   if [[ -f "$release_tar" ]]; then
     gzip -dc "$release_tar" | docker load
   else

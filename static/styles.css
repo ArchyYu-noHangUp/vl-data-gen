@@ -687,6 +687,22 @@ output div {
   overflow: hidden;
 }
 
+.preview-card-toolbar {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 14px;
+  border-bottom: 1px solid #dfe8eb;
+  background: #f8fbfa;
+}
+
+.preview-card-toolbar strong {
+  color: #223c34;
+  font-size: 15px;
+}
+
 .preview-section {
   display: grid;
   grid-template-columns: 112px 1fr;

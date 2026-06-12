@@ -42,7 +42,7 @@ QUESTION_PROMPT = """你是电力系统考试题图片信息抽取助手。
 要求：
 1. 公式必须转换为 LaTeX，内联公式用 \\(...\\)，独立公式用 $$...$$。
 2. 题干和选项保持原始语义与顺序，选项按 A:、B:、C:、D: 形式输出。
-3. 题目类型 type 必须从以下选项判断：单选题、多选题、判断题、简答题。没有明确选项或判断语句的计算/问答题，一般判断为“简答题”。
+3. 题目类型 type 必须从以下选项判断：单选题、多选题、判断题、填空题、简答题。题干要求在空格、横线或括号中填写结果时判断为“填空题”；没有明确选项、判断语句或填空位置的计算/问答题，一般判断为“简答题”。
 4. 题目难度 difficulty 必须从以下选项判断：简单、中等、困难。根据计算步骤、公式复杂度、是否跨多个知识点判断。
 5. 如果一道题没有题图，figures 返回空数组。
 6. bbox 必须使用当前上传图片的实际像素坐标 [x1, y1, x2, y2]，原点在左上角；x2 不得超过图片宽度，y2 不得超过图片高度。
@@ -51,7 +51,8 @@ QUESTION_PROMPT = """你是电力系统考试题图片信息抽取助手。
 9. 如果当前图片出现了带 caption 的独立题图，即使对应题干在上一页或下一页，也必须为该题图返回一个 questions 项：id 使用 caption 中的题号，question 可以为空字符串，figures 必须包含该题图 bbox；type 和 difficulty 可以为空。
 10. 页面顶部的题图很可能属于上一页末尾题目，不能因为当前页没有完整题干而忽略。例如图片顶部出现“题图 13-8”“题图 13-9”，也必须返回 id 为 13-8、13-9 的题图项。
 11. bbox 要贴紧题图边缘；如果同一行有多个题图，不要把相邻题图合在一个 bbox 中。
-12. 只返回 JSON，不要返回 Markdown、解释或多余文本。
+12. questions 数组必须严格按照题目在当前页面中的阅读顺序返回。id 只用于保留原材料中的编号；系统最终会按提取顺序重新编号。
+13. 只返回 JSON，不要返回 Markdown、解释或多余文本。
 
 JSON 格式：
 {
@@ -74,9 +75,9 @@ ANSWER_PROMPT = """你是电力系统考试答案图片信息抽取助手。
 请从图片中识别每一道题的编号，并把每道题对应的答案完整转写为文本和 LaTeX。
 
 要求：
-1. 题号通常是“13-1”“13-2”这类格式。每个题号后面的公式、文字、数值就是该题答案。
+1. 题号可能是“13-1”“13-2”“1”“2”或按题型重新编号。每个题号后面的公式、文字、数值就是该题答案。
 2. 必须按题号逐题返回，不能把相邻题目的答案合并到同一个 answer_text。
-3. 公式必须尽量转换为 LaTeX，内联公式用 \\(...\\)，独立公式用 $$...$$。
+3. 公式必须尽量转换为 LaTeX，内联公式必须用 $...$，独立公式必须用 $$...$$。禁止输出没有 $ 定界符的裸 LaTeX 公式。
 4. 若该题答案换行，例如 13-4、13-11，要把该题所有连续行完整转写到 answer_text。
 5. answer_text 不要包含左侧题号；如果无法稳定排除题号，也必须保证答案内容完整。
 6. 电工仪表符号必须按仪表字母和下标识别，不要把圈起来的仪表符号误写成圈号：
@@ -85,8 +86,9 @@ ANSWER_PROMPT = """你是电力系统考试答案图片信息抽取助手。
    - 圈内是 W₁、W₂ 或 W1、W2 时，写成 \\(W_1\\)、\\(W_2\\)。
    - 例如答案图中“圈中 V₁=220V”应输出 \\(V_1=220\\text{V}\\)，不是 \\textcircled{1}=220\\text{V}。
 7. 禁止在 answer_text 中使用 \\textcircled{...}。只有图片中确实是纯圈号 ①、②、③ 且不是电压表/电流表/功率表符号时，才可以使用 Unicode 字符 ①、②、③。
-8. 不要包含章节标题、页眉、页脚、空白边框或其他题目的答案。
-9. 只返回 JSON，不要返回 Markdown、解释或多余文本。
+8. answers 数组必须严格按照答案在当前页面中的阅读顺序返回。即使题号缺失或不同题型重新从 1 编号，也不能跳过答案；无法识别题号时 id 返回空字符串。
+9. 不要包含章节标题、页眉、页脚、空白边框或其他题目的答案。
+10. 只返回 JSON，不要返回 Markdown、解释或多余文本。
 
 JSON 格式：
 {
@@ -793,11 +795,97 @@ def infer_answer_id(ans):
     return ""
 
 
+def normalize_extraction_id(value):
+    text = str(value or "").strip().replace("－", "-").replace("—", "-")
+    text = re.sub(r"^(?:第\s*)?", "", text)
+    text = re.sub(r"\s*(?:题|[.、:：])$", "", text)
+    return re.sub(r"\s+", "", text).lower()
+
+
+def attach_referenced_figures_in_order(items):
+    figures_by_source = {}
+    for item in items:
+        source_id = normalize_extraction_id(item.get("_source_id", ""))
+        if source_id and item.get("figures"):
+            figures_by_source.setdefault(source_id, [])
+            for figure in item["figures"]:
+                if figure not in figures_by_source[source_id]:
+                    figures_by_source[source_id].append(figure)
+
+    for item in items:
+        if item.get("figures"):
+            continue
+        referenced = []
+        for ref in re.findall(r"题图\s*([0-9]+(?:[-－—][0-9]+)?)", item.get("question", "")):
+            for figure in figures_by_source.get(normalize_extraction_id(ref), []):
+                if figure not in referenced:
+                    referenced.append(figure)
+        if referenced:
+            item["figures"] = referenced
+    return items
+
+
+def match_answers_in_order(question_items, answer_items, logs):
+    answers_by_id = {}
+    for index, answer in enumerate(answer_items):
+        source_id = normalize_extraction_id(answer.get("_source_id", ""))
+        if source_id:
+            answers_by_id.setdefault(source_id, []).append(index)
+
+    used = set()
+    matched = 0
+    for question in question_items:
+        source_id = normalize_extraction_id(question.get("_source_id", ""))
+        match_index = None
+        if source_id:
+            for candidate in answers_by_id.get(source_id, []):
+                if candidate not in used:
+                    match_index = candidate
+                    break
+        if match_index is not None:
+            question["answer"] = answer_items[match_index]["answer"]
+            used.add(match_index)
+            matched += 1
+
+    remaining_answers = [index for index in range(len(answer_items)) if index not in used]
+    remaining_questions = [item for item in question_items if not item.get("answer", "").strip()]
+    for question, answer_index in zip(remaining_questions, remaining_answers):
+        question["answer"] = answer_items[answer_index]["answer"]
+        used.add(answer_index)
+        matched += 1
+
+    append_log(
+        logs,
+        f"问题与答案匹配完成：问题 {len(question_items)} 道，答案 {len(answer_items)} 条，成功匹配 {matched} 条",
+    )
+    return question_items
+
+
 def normalize_answer_text(text):
     text = str(text or "")
     text = re.sub(r"\\textcircled\{\s*([VAW])\s*[_\s-]*(\d+)\s*\}", r"\1_\2", text)
     text = re.sub(r"\\textcircled\{\s*\\?text\{\s*([VAW])\s*\}\s*[_\s-]*(\d+)\s*\}", r"\1_\2", text)
-    return text
+    text = text.replace(r"\(", "$").replace(r"\)", "$")
+    text = text.replace(r"\[", "$$").replace(r"\]", "$$")
+
+    normalized = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if (
+            stripped
+            and "$" not in stripped
+            and not re.search(r"[\u3400-\u9fff]", stripped)
+            and (
+                re.search(r"\\(?:frac|sqrt|dot|angle|Omega|varphi|Delta|text|cos|sin|tan|mu|pm|times)\b", stripped)
+                or re.search(r"[A-Za-z0-9}\)]\s*=\s*[A-Za-z0-9\\{(]", stripped)
+                or re.search(r"[A-Za-z]_\{?\S+", stripped)
+            )
+        ):
+            leading = line[: len(line) - len(line.lstrip())]
+            trailing = line[len(line.rstrip()) :]
+            line = f"{leading}${stripped}${trailing}"
+        normalized.append(line)
+    return "\n".join(normalized)
 
 
 def make_zip(output_dir):
@@ -832,6 +920,8 @@ def question_with_figure_links(question, figures):
         raw_ref = match.group(1)
         ref = raw_ref.replace("－", "-").replace("—", "-")
         filename = figure_map.get(ref)
+        if not filename and len(figure_map) == 1:
+            filename = next(iter(figure_map.values()))
         if not filename:
             return match.group(0)
         return f"题图![{ref}]({filename}) "
@@ -956,7 +1046,7 @@ def save_result_edits(job_id, items, files_by_key, make_package=True):
             continue
         previous = existing.get(qid, {})
         figures = [str(x).strip() for x in item.get("figures", previous.get("figures", [])) if str(x).strip()]
-        answer_text = str(item.get("answer", previous.get("answer", ""))).strip()
+        answer_text = normalize_answer_text(item.get("answer", previous.get("answer", ""))).strip()
 
         for key, file_item in files_by_key.items():
             parts = key.split(":")
@@ -1188,7 +1278,9 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
     fig_dir.mkdir(parents=True, exist_ok=True)
     answer_dir.mkdir(parents=True, exist_ok=True)
 
-    records = {}
+    question_items = []
+    question_indexes_by_source = {}
+    answer_items = []
     logs = JobLogs(job_id, job_dir)
 
     saved_questions = saved_questions if saved_questions is not None else save_uploads(question_files or [], upload_dir / "questions")
@@ -1205,33 +1297,54 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
             for q in extract_items(parsed, "questions"):
                 if not isinstance(q, dict):
                     continue
-                qid = str(first_value(q, ["id", "number", "qid", "question_id", "题号", "编号", "题目编号"])).strip()
-                if not qid:
+                source_id = str(first_value(q, ["id", "number", "qid", "question_id", "题号", "编号", "题目编号"])).strip()
+                normalized_source_id = normalize_extraction_id(source_id)
+                question_text = str(first_value(q, ["question", "content", "text", "stem", "题目", "问题"])).strip()
+                figures = first_value(q, ["figures", "images", "diagrams", "bboxes", "题图"], default=[])
+                if isinstance(figures, dict):
+                    figures = [figures]
+                if not source_id and not question_text and not figures:
                     continue
-                rec = records.setdefault(qid, {"question": "", "answer": "", "figures": [], "answers": [], "source": data_source})
-                question_text = first_value(q, ["question", "content", "text", "stem", "题目", "问题"])
+
+                rec = None
+                if normalized_source_id and question_indexes_by_source.get(normalized_source_id):
+                    candidate = question_items[question_indexes_by_source[normalized_source_id][-1]]
+                    if not question_text or not candidate.get("question"):
+                        rec = candidate
+                if rec is None:
+                    rec = {
+                        "_source_id": source_id,
+                        "question": "",
+                        "answer": "",
+                        "figures": [],
+                        "answers": [],
+                        "source": data_source,
+                    }
+                    question_items.append(rec)
+                    if normalized_source_id:
+                        question_indexes_by_source.setdefault(normalized_source_id, []).append(len(question_items) - 1)
+
                 if question_text:
-                    rec["question"] = str(question_text).strip()
+                    rec["question"] = question_text
                 q_type = str(first_value(q, ["type", "question_type", "题目类型"], default="")).strip()
                 q_difficulty = str(first_value(q, ["difficulty", "level", "题目难度", "难度"], default="")).strip()
                 if q_type:
                     rec["type"] = q_type
                 if q_difficulty:
                     rec["difficulty"] = q_difficulty
-                figures = first_value(q, ["figures", "images", "diagrams", "bboxes", "题图"], default=[])
-                if isinstance(figures, dict):
-                    figures = [figures]
                 for idx, fig in enumerate(figures if isinstance(figures, list) else [], start=1):
                     bbox = first_value(fig, ["bbox_2d", "bbox", "box", "坐标"], default=None) if isinstance(fig, dict) else fig
                     if not bbox:
                         continue
                     refined_bbox = None
+                    display_id = str(question_items.index(rec) + 1)
+                    figure_label = source_id or display_id
                     try:
-                        refined_bbox = refine_figure_bbox(config, image_path, qid, job_dir, logs)
+                        refined_bbox = refine_figure_bbox(config, image_path, figure_label, job_dir, logs)
                     except Exception as exc:
-                        append_log(logs, f"题图二次定位异常：题号 {qid}，错误={exc}")
+                        append_log(logs, f"题图二次定位异常：题目 {display_id}，错误={exc}")
                     suffix = "" if not rec["figures"] else f"_{len(rec['figures']) + 1}"
-                    out_name = f"{qid}{suffix}.jpg"
+                    out_name = f"{display_id}{suffix}.jpg"
                     out_path = fig_dir / out_name
                     try:
                         if refined_bbox:
@@ -1241,7 +1354,7 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
                         rec["figures"].append(f"{FIG_DIR_NAME}/{out_name}")
                         append_log(logs, f"题图裁剪成功：{FIG_DIR_NAME}/{out_name}")
                     except Exception as exc:
-                        append_log(logs, f"题图裁剪失败：题号 {qid}，bbox={refined_bbox or bbox}，错误={exc}")
+                        append_log(logs, f"题图裁剪失败：题目 {display_id}，bbox={refined_bbox or bbox}，错误={exc}")
 
         for image_path in saved_answers:
             append_log(logs, f"处理答案图片：{image_path.name}")
@@ -1249,23 +1362,29 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
             write_model_output(job_dir, f"answer-{image_path.stem}", raw)
             append_log(logs, f"答案图片模型返回：{image_path.name}")
             parsed = parse_json_text(raw)
-            answer_items = extract_items(parsed, "answers")
-            for ans in answer_items:
+            extracted_answers = extract_items(parsed, "answers")
+            for ans in extracted_answers:
                 if not isinstance(ans, dict):
                     continue
-                qid = infer_answer_id(ans)
-                if not qid:
-                    continue
-                rec = records.setdefault(qid, {"question": "", "answer": "", "figures": [], "answers": [], "source": data_source})
                 answer_text = first_value(ans, ["answer", "answer_text", "content", "text", "text_content", "答案"])
                 if answer_text:
-                    rec["answer"] = normalize_answer_text(answer_text).strip()
-                    append_log(logs, f"答案文本识别成功：题号 {qid}")
+                    source_id = infer_answer_id(ans)
+                    answer_items.append(
+                        {
+                            "_source_id": source_id,
+                            "answer": normalize_answer_text(answer_text).strip(),
+                        }
+                    )
+                    append_log(logs, f"答案文本识别成功：顺序 {len(answer_items)}，原编号 {source_id or '未识别'}")
 
-        attach_referenced_figures(records)
-        for item in records.values():
+        attach_referenced_figures_in_order(question_items)
+        match_answers_in_order(question_items, answer_items, logs)
+        records = {}
+        for index, item in enumerate(question_items, start=1):
             if data_source and not item.get("source"):
                 item["source"] = data_source
+            item.pop("_source_id", None)
+            records[str(index)] = item
         md_path = output_dir / "test_data.md"
         md_path.write_text(build_markdown(records), encoding="utf-8")
         append_log(logs, f"生成 Markdown：{md_path.relative_to(job_dir)}")
@@ -1297,13 +1416,50 @@ def save_uploads(file_items, dest_dir):
     saved = []
     for item in file_items:
         filename = getattr(item, "filename", "") or "upload.jpg"
-        path = dest_dir / safe_name(filename)
+        extension = Path(filename).suffix.lower()
+        if extension == ".pdf":
+            path = dest_dir / f"{uuid.uuid4().hex}.pdf"
+        elif extension in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}:
+            path = dest_dir / safe_name(filename)
+        else:
+            raise ValueError(f"不支持的文件格式：{filename}")
         with path.open("wb") as f:
             data = item.file.read()
             f.write(data)
-        compress_image(path)
-        saved.append(path)
+        if extension == ".pdf":
+            saved.extend(render_pdf_pages(path, dpi=220))
+        else:
+            compress_image(path)
+            saved.append(path)
     return saved
+
+
+def render_pdf_pages(pdf_path, dpi=220):
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError("缺少 PDF 处理依赖 PyMuPDF，请先安装 requirements.txt") from exc
+
+    pages = []
+    try:
+        document = fitz.open(str(pdf_path))
+    except Exception as exc:
+        raise ValueError(f"无法打开 PDF 文件：{pdf_path.name}") from exc
+    try:
+        if document.page_count < 1:
+            raise ValueError(f"PDF 文件没有可处理页面：{pdf_path.name}")
+        scale = float(dpi) / 72.0
+        matrix = fitz.Matrix(scale, scale)
+        for page_index in range(document.page_count):
+            page = document.load_page(page_index)
+            pixmap = page.get_pixmap(matrix=matrix, colorspace=fitz.csRGB, alpha=False)
+            output_path = pdf_path.with_name(f"{pdf_path.stem}-page-{page_index + 1:04d}.jpg")
+            pixmap.save(str(output_path))
+            compress_image(output_path)
+            pages.append(output_path)
+    finally:
+        document.close()
+    return pages
 
 
 def start_background_job(config, question_files, answer_files, data_source="", owner=""):

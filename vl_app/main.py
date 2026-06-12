@@ -27,7 +27,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path("/tmp/vl-data-gen-final")
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.4.3"
+APP_VERSION = "0.4.4"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -750,7 +750,7 @@ async def process(request: Request):
     question_images = [item for item in form.getlist("question_images") if getattr(item, "filename", None)]
     answer_images = [item for item in form.getlist("answer_images") if getattr(item, "filename", None)]
     if not question_images and not answer_images:
-        return JSONResponse({"error": "请至少上传一张图片"}, status_code=400)
+        return JSONResponse({"error": "请至少上传一个问题或答案文件"}, status_code=400)
 
     job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
     job_dir = create_job_dirs(job_id, user["username"])
