@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>电力分析能力评测数据采集与标注系统</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260528-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260612-1" />
   </head>
   <body>
     <main class="app">
@@ -12,8 +12,8 @@
         <header class="topbar">
           <div>
             <h1 id="appTitle">电力分析能力评测数据采集与标注系统</h1>
-            <span id="versionBadge" class="version-badge">版本 0.4.3</span>
-            <p id="userInfo">欢迎。上传问题图片与答案图片，自动生成题目文件夹和校核结果。</p>
+            <span id="versionBadge" class="version-badge">版本 0.4.4</span>
+            <p id="userInfo">欢迎。上传问题与答案的图片或 PDF，自动生成题目文件夹和校核结果。</p>
           </div>
           <div class="actions">
             <a id="manageLink" class="button secondary" href="/manage" hidden>系统管理</a>
@@ -34,15 +34,15 @@
         <section class="uploads">
           <label class="dropzone" for="question_images">
             <strong>问题</strong>
-            <span>上传需要抽取题目、题图 bbox 并裁剪的图片</span>
-            <input id="question_images" name="question_images" type="file" accept="image/*" multiple />
+            <span>上传需要抽取题目、题图并裁剪的图片或 PDF</span>
+            <input id="question_images" name="question_images" type="file" accept="image/*,application/pdf,.pdf" multiple />
             <output id="questionList"></output>
           </label>
 
           <label class="dropzone" for="answer_images">
             <strong>答案</strong>
-            <span>上传需要识别题号和答案 LaTeX 文本的图片</span>
-            <input id="answer_images" name="answer_images" type="file" accept="image/*" multiple />
+            <span>上传需要识别答案文本与公式的图片或 PDF</span>
+            <input id="answer_images" name="answer_images" type="file" accept="image/*,application/pdf,.pdf" multiple />
             <output id="answerList"></output>
           </label>
         </section>
@@ -72,6 +72,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/app.js?v=20260528-1"></script>
+    <script src="/static/app.js?v=20260612-1"></script>
   </body>
 </html>
