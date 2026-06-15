@@ -3,7 +3,6 @@ import csv
 import io
 import json
 import mimetypes
-import os
 import re
 import shutil
 import time
@@ -28,7 +27,7 @@ RUNS = ROOT / "runs"
 PIC_FILES = ROOT / "pic_files"
 TEMP_FINALS = Path(os.environ.get("VL_TEMP_FINALS", str(ROOT / "temp_final")))
 DEFAULT_SAMPLE_DATASET = ROOT / "sample_dataset"
-APP_VERSION = "0.4.4"
+APP_VERSION = "0.5.0"
 
 app = FastAPI(title="电力分析能力评测数据采集与标注系统")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -151,6 +150,8 @@ def job_payload(job_id):
             payload["status"] = "processing"
         elif db_status:
             payload["status"] = db_status
+        if db_status == "failed" and job.get("error"):
+            payload["error"] = job["error"]
     if (RUNS / job_id / legacy.OUTPUT_NAME / "test_data.md").exists():
         payload.update(status_counts(job_id))
     return payload
@@ -162,15 +163,29 @@ def is_final_completed(job_id):
 
 def final_figure_name(figure_rel):
     stem = safe_folder_name(Path(str(figure_rel)).stem)
-    return f"{stem}.jpg"
+    return f"{stem}.png"
+
+
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+
+
+def sample_figure_paths(sample_dir):
+    return sorted(
+        [path for path in sample_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES],
+        key=lambda path: legacy.question_sort_key(path.stem),
+    )
+
+
+def convert_figure_to_png(source, target):
+    legacy.convert_image_to_png(source, target)
 
 
 def copy_item_figures(job_id, item, target_dir):
     output_dir = RUNS / job_id / legacy.OUTPUT_NAME
     figures = [fig for fig in item.get("figures", []) if fig]
     copied = {}
-    used_names = set()
-    for figure in figures:
+    sample_id = target_dir.name
+    for figure_index, figure in enumerate(figures):
         source = (output_dir / figure).resolve()
         try:
             source.relative_to(output_dir.resolve())
@@ -178,28 +193,17 @@ def copy_item_figures(job_id, item, target_dir):
             continue
         if not source.exists():
             continue
-        filename = final_figure_name(figure)
-        if filename in used_names:
-            filename = f"{safe_folder_name(source.stem)}_{len(used_names) + 1}.jpg"
-        shutil.copyfile(source, target_dir / filename)
+        filename = legacy.standardized_figure_name("", sample_id, figure_index)
+        convert_figure_to_png(source, target_dir / filename)
         copied[source.stem] = filename
-        used_names.add(filename)
     return copied
 
 
 def question_with_figure_links(question, figure_map):
-    if not question or not figure_map:
+    if not question:
         return question
-
-    def repl(match):
-        raw_ref = match.group(1)
-        ref = raw_ref.replace("－", "-").replace("—", "-")
-        filename = figure_map.get(ref)
-        if not filename:
-            return match.group(0)
-        return f"题图![{ref}]({filename}) "
-
-    return re.sub(r"题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*", repl, question)
+    figure_names = list(dict.fromkeys(figure_map.values()))
+    return legacy.question_with_figure_links(question, figure_names)
 
 
 def replace_markdown_source(md_text, source):
@@ -387,7 +391,7 @@ def sample_record(source, sample_id):
     rows = read_sample_info(source_dir)
     info = next((row for row in rows if row.get("样本编号") == sample_dir.name), {})
     item = parse_sample_data_md(data_path.read_text(encoding="utf-8"))
-    figures = [path.name for path in sorted(sample_dir.glob("*.jpg"))]
+    figures = [path.name for path in sample_figure_paths(sample_dir)]
     return {
         "source": source_dir.name,
         "sample_id": sample_dir.name,
@@ -481,6 +485,7 @@ def reset_user_cache(username):
     for job_id in job_ids:
         shutil.rmtree(RUNS / job_id, ignore_errors=True)
         shutil.rmtree(TEMP_FINALS / job_id, ignore_errors=True)
+        shutil.rmtree(Path("/tmp/vl-data-gen-final") / job_id, ignore_errors=True)
     return sorted(job_ids)
 
 
@@ -757,14 +762,17 @@ async def process(request: Request):
     update_job_meta(job_id, {"model_config": config})
     logs = write_initial_log(job_dir)
     try:
+        upload_started = time.perf_counter()
         upload_dir = job_dir / "uploads"
         saved_questions = legacy.save_uploads([UploadWrapper(item) for item in question_images], upload_dir / "questions")
         saved_answers = legacy.save_uploads([UploadWrapper(item) for item in answer_images], upload_dir / "answers")
+        upload_elapsed = time.perf_counter() - upload_started
     except Exception as exc:
         db.update_job_status(job_id, "failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
 
-    logs.append(f"{time.strftime('%H:%M:%S')} 上传完成，任务已进入队列")
+    logs.append(f"{time.strftime('%H:%M:%S')} 上传、PDF渲染及图片压缩完成，耗时 {upload_elapsed:.1f} 秒")
+    logs.append(f"{time.strftime('%H:%M:%S')} 任务已进入队列")
     legacy.write_process_log(job_dir, logs)
     db.update_job_status(job_id, "queued")
     backend = enqueue(
@@ -1080,16 +1088,27 @@ async def admin_sample_save(source: str, sample_id: str, request: Request):
         "solution": payload.get("solution", "解答过程暂略"),
         "source": payload.get("source", record.get("source", source_dir.name)),
     }
-    (sample_dir / "data.md").write_text(sample_data_markdown(item), encoding="utf-8")
+    existing_figures = sample_figure_paths(sample_dir)
     saved_figures = []
     for key, value in form.multi_items():
         if key != "figure" or not getattr(value, "filename", None) or not getattr(value, "file", None):
             continue
-        filename = legacy.safe_output_image_name(sample_dir.name, len(saved_figures), "figure", value.filename)
-        with (sample_dir / filename).open("wb") as f:
-            shutil.copyfileobj(value.file, f)
+        image_index = len(saved_figures)
+        if image_index < len(existing_figures):
+            filename = existing_figures[image_index].name
+        else:
+            filename = legacy.standardized_figure_name(
+                "",
+                sample_dir.name,
+                image_index,
+            )
+        legacy.save_uploaded_image(value, sample_dir / filename)
         saved_figures.append(filename)
-    return {"ok": True, "figures": [path.name for path in sorted(sample_dir.glob('*.jpg'))]}
+    final_figures = [path.name for path in sample_figure_paths(sample_dir)]
+    figure_map = {Path(filename).stem: filename for filename in final_figures}
+    item["question"] = question_with_figure_links(item["question"], figure_map)
+    (sample_dir / "data.md").write_text(sample_data_markdown(item), encoding="utf-8")
+    return {"ok": True, "figures": final_figures}
 
 
 @app.post("/api/admin/sample-sources/{source}/samples/{sample_id}/status")
@@ -1164,7 +1183,7 @@ def admin_save_final_job(job_id: str, request: Request):
         data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
         if data_text:
             (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
-        for figure_path in temp_dir.glob("*.jpg"):
+        for figure_path in sample_figure_paths(temp_dir):
             shutil.copyfile(figure_path, target / figure_path.name)
         saved_root = str(target.parent)
     db.mark_final_job(job_id, "saved", saved_root)
@@ -1215,7 +1234,7 @@ def admin_save_final_item(item_id: int, request: Request):
     data_text = (temp_dir / "data.md").read_text(encoding="utf-8") if (temp_dir / "data.md").exists() else ""
     if data_text:
         (target / "data.md").write_text(replace_markdown_source(data_text, item["data_source"]), encoding="utf-8")
-    for figure_path in temp_dir.glob("*.jpg"):
+    for figure_path in sample_figure_paths(temp_dir):
         shutil.copyfile(figure_path, target / figure_path.name)
     shutil.rmtree(temp_dir)
     db.mark_final_item(item_id, "saved", str(target))

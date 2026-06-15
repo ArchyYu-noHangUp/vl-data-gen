@@ -27,7 +27,7 @@ async function initUser() {
     document.title = "评测数据采集与标注";
     $("appTitle").textContent = "评测数据采集与标注";
   }
-  $("versionBadge").textContent = `版本 ${data.version || "0.4.4"}`;
+  $("versionBadge").textContent = `版本 ${data.version || "0.5.0"}`;
   $("versionBadge").hidden = false;
   $("userInfo").hidden = false;
   $("userInfo").textContent = `欢迎，${data.user.username}。上传问题与答案的图片或 PDF，自动生成题目文件夹和校核结果。`;

@@ -44,6 +44,7 @@ def init_db():
                 job_id text primary key,
                 owner text not null,
                 status text not null,
+                error text not null default '',
                 reviewed_count integer not null default 0,
                 created_at text not null,
                 updated_at text not null
@@ -86,6 +87,9 @@ def init_db():
         columns = {row["name"] for row in conn.execute("pragma table_info(sessions)").fetchall()}
         if "last_seen" not in columns:
             conn.execute("alter table sessions add column last_seen integer not null default 0")
+        job_columns = {row["name"] for row in conn.execute("pragma table_info(jobs)").fetchall()}
+        if "error" not in job_columns:
+            conn.execute("alter table jobs add column error text not null default ''")
         conn.execute(
             "insert or ignore into settings(key, value, updated_at) values ('register_code', ?, ?)",
             (REGISTER_CODE, now_text()),
@@ -317,17 +321,17 @@ def upsert_job(job_id, owner, status):
         )
 
 
-def update_job_status(job_id, status, reviewed_count=None):
+def update_job_status(job_id, status, reviewed_count=None, error=None):
     with connect() as conn:
         if reviewed_count is None:
             conn.execute(
-                "update jobs set status = ?, updated_at = ? where job_id = ?",
-                (status, now_text(), job_id),
+                "update jobs set status = ?, error = ?, updated_at = ? where job_id = ?",
+                (status, str(error or ""), now_text(), job_id),
             )
         else:
             conn.execute(
-                "update jobs set status = ?, reviewed_count = ?, updated_at = ? where job_id = ?",
-                (status, reviewed_count, now_text(), job_id),
+                "update jobs set status = ?, error = ?, reviewed_count = ?, updated_at = ? where job_id = ?",
+                (status, str(error or ""), reviewed_count, now_text(), job_id),
             )
 
 

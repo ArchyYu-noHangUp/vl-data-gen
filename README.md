@@ -2,7 +2,7 @@
 
 面向电力分析评测数据的采集、校核、标注与归档。系统支持上传题目图片和答案图片，调用多模态大模型抽取题干、答案、题图，人工校核后生成结构化样本数据。
 
-当前版本：`0.4.4`
+当前版本：`0.5.0`
 
 当前分支：`windows-server`
 
@@ -13,6 +13,16 @@
 ## 版本更新记录
 
 每次发布新版本时，必须在本节写明主要更新内容，并同步维护 [CHANGELOG.md](CHANGELOG.md)，确保 GitHub 项目首页可以直接查看各版本变化。
+
+### 0.5.0 - 2026-06-15
+
+- 修复Windows CRLF换行导致PDF处理结果在“查看结果”页只显示一道题的问题。
+- 多个问题图片或PDF页面先分别识别，再按原始页序合并跨文件题干。
+- 题图统一使用`题目编号-fig序号.png`命名，并在问题正文末尾追加图片索引。
+- 题图定位使用DashScope `qwen3.5-27b`和0-1000归一化坐标策略。
+- 新增问题识别2并发、题图定位3并发、答案识别2并发，结果按原始索引排序。
+- 新增任务耗时日志、worker持久启动修复和具体错误信息回传。
+- 保留Windows Server下FFmpeg自动查找、环境变量路径和本地临时目录适配。
 
 ### 0.4.4 - 2026-06-12
 
@@ -82,8 +92,8 @@ http://服务器IP:8000
 Windows 容器镜像只能在 Docker 的 Windows Containers 模式下构建和运行：
 
 ```powershell
-docker build -f Dockerfile.windows -t vl-data-gen:0.4.4-windows .
-docker save -o docker_release\vl-data-gen-0.4.4-windows.tar vl-data-gen:0.4.4-windows
+docker build -f Dockerfile.windows -t vl-data-gen:0.5.0-windows .
+docker save -o docker_release\vl-data-gen-0.5.0-windows.tar vl-data-gen:0.5.0-windows
 ```
 
 启动：
@@ -96,7 +106,7 @@ docker run -d `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
-  vl-data-gen:0.4.4-windows
+  vl-data-gen:0.5.0-windows
 ```
 
 Docker 详细说明见 [docker_release/windows-docker启动说明.md](docker_release/windows-docker启动说明.md)。

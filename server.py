@@ -14,6 +14,7 @@ import time
 import traceback
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -35,10 +36,16 @@ JOB_STATUS = {}
 SESSIONS = {}
 REGISTER_CODE = "225-m1"
 _TOOL_CACHE = {}
+QUESTION_PAGE_CONCURRENCY = max(1, int(os.environ.get("QUESTION_PAGE_CONCURRENCY", "2")))
+FIGURE_CONCURRENCY = max(1, int(os.environ.get("FIGURE_CONCURRENCY", "3")))
+ANSWER_PAGE_CONCURRENCY = max(1, int(os.environ.get("ANSWER_PAGE_CONCURRENCY", "2")))
 
 
 def external_tool(name):
     env_key = f"{name.upper()}_BIN"
+    cached = _TOOL_CACHE.get(name)
+    if cached and Path(cached).exists():
+        return cached
     configured = os.environ.get(env_key)
     candidates = []
     if configured:
@@ -47,23 +54,15 @@ def external_tool(name):
     if found:
         candidates.append(Path(found))
     exe_name = f"{name}.exe" if os.name == "nt" else name
-    candidates.extend(
-        [
-            ROOT / "tools" / "ffmpeg" / "bin" / exe_name,
-            ROOT / "tools" / "ffmpeg" / exe_name,
-        ]
-    )
-    cached = _TOOL_CACHE.get(name)
-    if cached and Path(cached).exists():
-        return cached
+    candidates.extend([ROOT / "tools" / "ffmpeg" / "bin" / exe_name, ROOT / "tools" / "ffmpeg" / exe_name])
     for candidate in candidates:
-        if candidate and candidate.exists():
+        if candidate.exists():
             resolved = str(candidate)
             _TOOL_CACHE[name] = resolved
             return resolved
     raise RuntimeError(
-        f"未找到 {name} 可执行文件。Windows Server 裸机部署请重新执行 scripts\\windows\\install.ps1，"
-        f"或将 {env_key} 指向 {exe_name} 的完整路径。"
+        f"未找到 {name} 可执行文件。Windows Server裸机部署请重新执行scripts\\windows\\install.ps1，"
+        f"或将{env_key}指向{exe_name}的完整路径。"
     )
 
 
@@ -76,14 +75,16 @@ QUESTION_PROMPT = """你是电力系统考试题图片信息抽取助手。
 3. 题目类型 type 必须从以下选项判断：单选题、多选题、判断题、填空题、简答题。题干要求在空格、横线或括号中填写结果时判断为“填空题”；没有明确选项、判断语句或填空位置的计算/问答题，一般判断为“简答题”。
 4. 题目难度 difficulty 必须从以下选项判断：简单、中等、困难。根据计算步骤、公式复杂度、是否跨多个知识点判断。
 5. 如果一道题没有题图，figures 返回空数组。
-6. bbox 必须使用当前上传图片的实际像素坐标 [x1, y1, x2, y2]，原点在左上角；x2 不得超过图片宽度，y2 不得超过图片高度。
-7. 只框选电路图、曲线图、表格等视觉题图，可以包含其下方“题图 xx”标题；不要框选题干文字，也不要框选只出现“如题图 xx 所示”的文字行。
-8. 对“题图 13-3”这类引用，要找图下方 caption 为“题图 13-3”的视觉图形，而不是题干中包含“题图 13-3”的文字。
+6. bbox 统一使用 0-1000 归一化坐标 [x1, y1, x2, y2]，左上角为 [0,0]，右下角为 [1000,1000]，不要返回图片实际像素坐标。
+7. 只框选电路图、曲线图、波形图、相量图、示意图、表格等视觉题图，可以包含其紧邻的“图1.1”“题图 13-3”等图注；不要框选题干文字，也不要框选只出现“如图1.1所示”“如题图 13-3 所示”的文字行。
+8. 图注格式可能是“图1.1”“图 1-1”“题图 13-3”，也可能因扫描模糊而无法辨认。不要要求图注与题号完全一致，应结合题干中的图号引用、题图在题干附近的位置和视觉内容判断归属。
 9. 如果当前图片出现了带 caption 的独立题图，即使对应题干在上一页或下一页，也必须为该题图返回一个 questions 项：id 使用 caption 中的题号，question 可以为空字符串，figures 必须包含该题图 bbox；type 和 difficulty 可以为空。
 10. 页面顶部的题图很可能属于上一页末尾题目，不能因为当前页没有完整题干而忽略。例如图片顶部出现“题图 13-8”“题图 13-9”，也必须返回 id 为 13-8、13-9 的题图项。
-11. bbox 要贴紧题图边缘；如果同一行有多个题图，不要把相邻题图合在一个 bbox 中。
+11. bbox 要贴紧题图边缘；如果同一行有多个题图，不要把相邻题图合在一个 bbox 中。对于模糊、低对比度、压缩失真的扫描图，应依据电路连线、元件符号、坐标轴、曲线、箭头、表格边框和标注文字的视觉连续性确定完整边界，不能只依赖文字识别。
 12. questions 数组必须严格按照题目在当前页面中的阅读顺序返回。id 只用于保留原材料中的编号；系统最终会按提取顺序重新编号。
-13. 只返回 JSON，不要返回 Markdown、解释或多余文本。
+13. figures 中的 description 必须填写，至少说明可见图注、题图相对位置和题图类型，例如“题干下方，图注图1.1，含N1/N2模块和3Ω电阻的电路图”。图注看不清时明确写“图注模糊”，不要编造。
+14. 当前图片可能是多个连续子文件中的一页。如果页面开头是上一页题目的续文，例如以“(1)”“（2）”或计算条件开头，不得把它识别成一道新题；将 continuation_of_previous 设为 true。页面中真正出现新题号时才创建新题。
+15. 只返回 JSON，不要返回 Markdown、解释或多余文本。
 
 JSON 格式：
 {
@@ -93,6 +94,7 @@ JSON 格式：
       "type": "简答题",
       "difficulty": "中等",
       "question": "题干和选项完整文本",
+      "continuation_of_previous": false,
       "figures": [
         {"bbox": [10, 20, 300, 400], "description": "可选的题图说明"}
       ]
@@ -357,9 +359,14 @@ def call_vlm(config, image_path, prompt, add_pixel_hint=True):
         except requests.HTTPError as exc:
             last_exc = exc
             status = exc.response.status_code if exc.response is not None else 0
-            if status < 500 or attempt == 2:
+            if (status < 500 and status != 429) or attempt == 2:
                 raise
-            time.sleep(1.5 * (attempt + 1))
+            retry_after = exc.response.headers.get("Retry-After", "") if exc.response is not None else ""
+            try:
+                delay = max(float(retry_after), 1.5 * (attempt + 1))
+            except (TypeError, ValueError):
+                delay = 1.5 * (attempt + 1)
+            time.sleep(delay)
         except requests.RequestException as exc:
             last_exc = exc
             if attempt == 2:
@@ -553,6 +560,31 @@ def answer_bbox_ref_size(image_path, bbox):
         if max(vals) <= 1100:
             return (1000, 1000)
     return None
+
+
+def select_figure_bbox(initial_bbox, refined_bbox):
+    initial_values = coerce_bbox(initial_bbox)
+    if not initial_values:
+        return refined_bbox
+    if not refined_bbox:
+        return initial_values
+    refined_values = coerce_bbox(refined_bbox)
+    if not refined_values:
+        return initial_values
+    ix1, iy1, ix2, iy2 = initial_values
+    rx1, ry1, rx2, ry2 = refined_values
+    initial_area = max(1, (ix2 - ix1) * (iy2 - iy1))
+    refined_area = max(1, (rx2 - rx1) * (ry2 - ry1))
+    area_ratio = refined_area / initial_area
+    initial_center = ((ix1 + ix2) / 2, (iy1 + iy2) / 2)
+    refined_center = ((rx1 + rx2) / 2, (ry1 + ry2) / 2)
+    center_delta = (
+        ((initial_center[0] - refined_center[0]) ** 2 + (initial_center[1] - refined_center[1]) ** 2) ** 0.5
+    )
+    initial_diagonal = max(1, ((ix2 - ix1) ** 2 + (iy2 - iy1) ** 2) ** 0.5)
+    if not 0.4 <= area_ratio <= 2.5 or center_delta > initial_diagonal:
+        return initial_values
+    return refined_values
 
 
 def answer_response_ref_size(image_path, answers):
@@ -761,6 +793,7 @@ def attach_referenced_figures(records):
 
 
 def parse_markdown_records(text):
+    text = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
     records = {}
     blocks = re.split(r"\n(?=# 题目编号\n)", text.strip())
     for block in [b.strip() for b in blocks if b.strip()]:
@@ -831,6 +864,103 @@ def normalize_extraction_id(value):
     text = re.sub(r"^(?:第\s*)?", "", text)
     text = re.sub(r"\s*(?:题|[.、:：])$", "", text)
     return re.sub(r"\s+", "", text).lower()
+
+
+def merge_question_text(current, addition):
+    current = str(current or "").strip()
+    addition = str(addition or "").strip()
+    if not addition:
+        return current
+    if not current:
+        return addition
+    if addition in current:
+        return current
+    if current in addition:
+        return addition
+    return f"{current}\n{addition}"
+
+
+def is_question_continuation(text):
+    text = str(text or "").strip()
+    return bool(
+        re.match(r"^(?:[（(]\s*\d+\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]|[A-DＡ-Ｄ][.、:：])", text)
+    )
+
+
+def question_expects_continuation(text):
+    text = str(text or "").rstrip()
+    return bool(re.search(r"(?:求|问|包括|如下|分别为|计算)[：:]?\s*$", text) or text.endswith(("：", ":")))
+
+
+def consolidate_question_pages(page_items, logs):
+    consolidated = []
+    indexes_by_source = {}
+    last_question_item = None
+
+    for page_index, fragments in enumerate(page_items):
+        for fragment_index, fragment in enumerate(fragments):
+            source_id = str(fragment.get("_source_id", "")).strip()
+            normalized_id = normalize_extraction_id(source_id)
+            question_text = str(fragment.get("question", "")).strip()
+            figures = list(fragment.get("_figure_candidates", []))
+
+            is_cross_page_continuation = (
+                fragment_index == 0
+                and page_index > 0
+                and question_text
+                and last_question_item is not None
+                and (
+                    fragment.get("_continues_previous")
+                    or (
+                        is_question_continuation(question_text)
+                        and question_expects_continuation(last_question_item.get("question", ""))
+                    )
+                )
+            )
+            if is_cross_page_continuation:
+                last_question_item["question"] = merge_question_text(last_question_item.get("question"), question_text)
+                append_log(
+                    logs,
+                    f"跨文件续文合并：第 {page_index + 1} 个问题文件开头内容并入原编号 "
+                    f"{last_question_item.get('_source_id') or '未识别'}",
+                )
+                question_text = ""
+
+            target = None
+            if normalized_id and indexes_by_source.get(normalized_id):
+                candidate = consolidated[indexes_by_source[normalized_id][-1]]
+                if not question_text or not candidate.get("question") or is_cross_page_continuation:
+                    target = candidate
+                elif fragment.get("_page_index", page_index) > candidate.get("_page_index", page_index):
+                    if question_expects_continuation(candidate.get("question", "")) or is_question_continuation(question_text):
+                        target = candidate
+
+            if target is None and (question_text or figures or source_id):
+                target = {
+                    "_source_id": source_id,
+                    "_page_index": page_index,
+                    "question": "",
+                    "answer": "",
+                    "figures": [],
+                    "_figure_candidates": [],
+                    "answers": [],
+                    "source": fragment.get("source", ""),
+                }
+                consolidated.append(target)
+                if normalized_id:
+                    indexes_by_source.setdefault(normalized_id, []).append(len(consolidated) - 1)
+
+            if target is None:
+                continue
+            if question_text:
+                target["question"] = merge_question_text(target.get("question"), question_text)
+                last_question_item = target
+            for key in ["type", "difficulty"]:
+                if fragment.get(key):
+                    target[key] = fragment[key]
+            target["_figure_candidates"].extend(figures)
+
+    return [item for item in consolidated if item.get("question") or item.get("_figure_candidates")]
 
 
 def attach_referenced_figures_in_order(items):
@@ -939,25 +1069,59 @@ def safe_folder_name(name):
 
 def final_figure_name(figure_rel):
     stem = safe_folder_name(Path(str(figure_rel)).stem)
-    return f"{stem}.jpg"
+    return f"{stem}.png"
+
+
+def safe_figure_component(value):
+    text = safe_folder_name(value)
+    text = re.sub(r"[\s()\[\]{}]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("._-")
+    return text or "数据来源"
+
+
+def standardized_figure_name(source, qid, index=0):
+    return f"{safe_figure_component(qid)}-fig{int(index) + 1}.png"
+
+
+def convert_image_to_png(source, target):
+    cmd = [
+        external_tool("ffmpeg"),
+        "-y",
+        "-i",
+        str(source),
+        "-frames:v",
+        "1",
+        str(target),
+    ]
+    subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return target
 
 
 def question_with_figure_links(question, figures):
-    figure_map = {Path(str(figure)).stem: final_figure_name(figure) for figure in figures if figure}
-    if not question or not figure_map:
+    figure_names = [final_figure_name(figure) for figure in figures if figure]
+    if not question:
         return question
+    lines = []
+    for line in str(question).splitlines():
+        if re.fullmatch(r"\s*!\[[^\]]*\]\([^)]+\)\s*", line):
+            continue
+        lines.append(re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", line))
+    clean_question = "\n".join(lines).strip()
+    if not figure_names:
+        return clean_question
 
-    def repl(match):
-        raw_ref = match.group(1)
-        ref = raw_ref.replace("－", "-").replace("—", "-")
-        filename = figure_map.get(ref)
-        if not filename and len(figure_map) == 1:
-            filename = next(iter(figure_map.values()))
-        if not filename:
-            return match.group(0)
-        return f"题图![{ref}]({filename}) "
-
-    return re.sub(r"题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*", repl, question)
+    labels = [
+        f"{label}{ref}"
+        for label, ref in re.findall(
+            r"(?<!\[)(题图|图)\s*([0-9]+(?:[.\-－—][0-9]+)*)",
+            clean_question,
+        )
+    ]
+    indexes = [
+        f"![{labels[index] if index < len(labels) else f'题图{index + 1}'}]({filename})"
+        for index, filename in enumerate(figure_names)
+    ]
+    return f"{clean_question}\n" + "\n".join(indexes)
 
 
 def question_markdown(item):
@@ -1006,7 +1170,7 @@ def make_final_package(job_id, records, source):
             except ValueError:
                 source_path = None
             if source_path and source_path.exists():
-                shutil.copyfile(source_path, question_dir / final_figure_name(figure))
+                convert_image_to_png(source_path, question_dir / final_figure_name(figure))
 
     zip_path = job_dir / f"{OUTPUT_NAME}.zip"
     if zip_path.exists():
@@ -1019,17 +1183,43 @@ def make_final_package(job_id, records, source):
 
 
 def safe_output_image_name(qid, index, field, filename, current_rel=""):
-    ext = Path(filename or "").suffix.lower()
-    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
-        ext = ".jpg"
     if current_rel:
-        stem = Path(current_rel).stem
-    else:
-        safe_qid = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(qid)).strip("._") or "image"
-        suffix = "" if int(index) == 0 else f"_{int(index) + 1}"
-        stem = f"{safe_qid}{suffix}"
+        current_name = Path(current_rel).name
+        if current_name:
+            return current_name
+    safe_qid = safe_folder_name(qid)
+    stem = f"{safe_qid}-fig{int(index) + 1}"
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._") or field
-    return f"{stem}{ext}"
+    return f"{stem}.png"
+
+
+def save_uploaded_image(file_item, target):
+    source_ext = Path(getattr(file_item, "filename", "") or "").suffix.lower()
+    if source_ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}:
+        raise ValueError("不支持的题图文件格式")
+    temp_path = target.with_name(f".{target.stem}-{uuid.uuid4().hex}{source_ext}")
+    try:
+        with temp_path.open("wb") as f:
+            shutil.copyfileobj(file_item.file, f)
+        if target.suffix.lower() in {".jpg", ".jpeg"}:
+            compress_image(temp_path, target)
+        elif target.suffix.lower() == ".png":
+            cmd = [
+                external_tool("ffmpeg"),
+                "-y",
+                "-i",
+                str(temp_path),
+                "-frames:v",
+                "1",
+                str(target),
+            ]
+            subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            shutil.move(str(temp_path), str(target))
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+    return target
 
 
 def save_replacement_image(file_item, output_dir, folder, qid, index, field, current_rel=""):
@@ -1051,8 +1241,7 @@ def save_replacement_image(file_item, output_dir, folder, qid, index, field, cur
         if old and old.exists() and old != target:
             old.unlink()
 
-    with target.open("wb") as f:
-        shutil.copyfileobj(file_item.file, f)
+    save_uploaded_image(file_item, target)
     return f"{folder}/{filename}"
 
 
@@ -1088,11 +1277,12 @@ def save_result_edits(job_id, items, files_by_key, make_package=True):
                 continue
             image_index = int(image_idx)
             current = figures[image_index] if field == "figure" and image_index < len(figures) else ""
+            image_base = f"{item.get('source', previous.get('source', '数据来源'))}-{qid}"
             rel_path = save_replacement_image(
                 file_item,
                 output_dir,
                 FIG_DIR_NAME,
-                qid,
+                image_base,
                 image_index,
                 field,
                 current_rel=current,
@@ -1173,7 +1363,11 @@ def write_process_log(job_dir, logs):
 
 class JobLogs(list):
     def __init__(self, job_id, job_dir):
-        super().__init__()
+        existing = []
+        log_path = job_dir / "process.log"
+        if log_path.exists():
+            existing = [line for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        super().__init__(existing)
         self.job_id = job_id
         self.job_dir = job_dir
 
@@ -1272,7 +1466,19 @@ def expand_figure_bbox(bbox):
     ]
 
 
-def refine_figure_bbox(config, image_path, qid, job_dir, logs):
+def refine_figure_bbox(
+    config,
+    image_path,
+    qid,
+    question_text,
+    description,
+    initial_bbox,
+    job_dir,
+    logs,
+    output_key=None,
+):
+    question_hint = re.sub(r"\s+", " ", str(question_text or "")).strip()[:500]
+    description_hint = re.sub(r"\s+", " ", str(description or "")).strip()[:300]
     prompt = f"""你是题图 bbox 精确定位助手。
 当前任务：只定位图片中 caption/图注 为“题图 {qid}”的那一个视觉题图区域。
 
@@ -1287,8 +1493,17 @@ def refine_figure_bbox(config, image_path, qid, job_dir, logs):
 7. bbox 要贴近题图边缘，四周只保留少量空白；宁可留少量空白，也不能切断线条、元件、标注文字或图注。
 8. 只返回 JSON：{{"bbox_2d":[x1,y1,x2,y2]}}。
 """
+    qid_pattern = re.escape(str(qid or "").strip()).replace(r"\-", r"[-－—\s]*")
+    has_target_caption = bool(
+        qid_pattern
+        and re.search(rf"(?:题图|图)\s*{qid_pattern}", description_hint, flags=re.I)
+    )
+    if description_hint and not has_target_caption:
+        prompt += f"\n图注模糊或与题号不一致时，辅助描述：{description_hint}"
+    if question_hint and not has_target_caption:
+        prompt += f"\n仍无法确定时，使用题干摘要辅助判断：{question_hint}"
     raw = call_vlm(config, image_path, prompt, add_pixel_hint=False)
-    write_model_output(job_dir, f"refine-{qid}-{image_path.stem}", raw)
+    write_model_output(job_dir, output_key or f"refine-{qid}-{image_path.stem}", raw)
     parsed = parse_json_text(raw)
     bbox = extract_bbox_value(parsed)
     if not bbox:
@@ -1296,6 +1511,97 @@ def refine_figure_bbox(config, image_path, qid, job_dir, logs):
         return None
     append_log(logs, f"题图二次定位返回：题号 {qid}，bbox_2d={bbox}")
     return bbox
+
+
+def recognize_page(config, image_path, prompt, add_pixel_hint):
+    started = time.perf_counter()
+    raw = call_vlm(config, image_path, prompt, add_pixel_hint=add_pixel_hint)
+    return raw, time.perf_counter() - started
+
+
+def run_indexed_concurrently(items, max_workers, worker):
+    if not items:
+        return []
+    results = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(items))) as executor:
+        futures = {
+            executor.submit(worker, index, item): index
+            for index, item in enumerate(items)
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            results[index] = future.result()
+    return results
+
+
+def crop_consolidated_question_figures(config, question_items, data_source, fig_dir, job_dir, logs, timings):
+    figure_tasks = []
+    for item_index, rec in enumerate(question_items, start=1):
+        display_id = str(item_index)
+        for candidate_index, candidate in enumerate(rec.get("_figure_candidates", [])):
+            figure_tasks.append(
+                {
+                    "rec": rec,
+                    "display_id": display_id,
+                    "candidate_index": candidate_index,
+                    "candidate": candidate,
+                    "figure_label": rec.get("_source_id") or display_id,
+                }
+            )
+
+    def locate_figure(_, task):
+        local_logs = []
+        candidate = task["candidate"]
+        refined_bbox = None
+        error = None
+        try:
+            refined_bbox = refine_figure_bbox(
+                config,
+                candidate["image_path"],
+                task["figure_label"],
+                task["rec"].get("question", ""),
+                candidate.get("description", ""),
+                candidate["bbox"],
+                job_dir,
+                local_logs,
+                output_key=(
+                    f"refine-{task['figure_label']}-{task['display_id']}-"
+                    f"{task['candidate_index'] + 1}-{candidate['image_path'].stem}"
+                ),
+            )
+        except Exception as exc:
+            error = str(exc)
+        return refined_bbox, local_logs, error
+
+    stage_started = time.perf_counter()
+    located = run_indexed_concurrently(figure_tasks, FIGURE_CONCURRENCY, locate_figure)
+    timings["figure_refinement"] += time.perf_counter() - stage_started
+
+    for task, result in zip(figure_tasks, located):
+        refined_bbox, local_logs, error = result
+        for message in local_logs:
+            logs.append(message)
+        rec = task["rec"]
+        display_id = task["display_id"]
+        candidate = task["candidate"]
+        image_path = candidate["image_path"]
+        bbox = candidate["bbox"]
+        if error:
+            append_log(logs, f"题图二次定位异常：题目 {display_id}，错误={error}")
+        out_name = standardized_figure_name(data_source, display_id, len(rec["figures"]))
+        out_path = fig_dir / out_name
+        try:
+            selected_bbox = select_figure_bbox(bbox, refined_bbox)
+            crop_region(
+                image_path,
+                expand_figure_bbox(selected_bbox),
+                out_path,
+                ref_size=(1000, 1000),
+            )
+            rec["figures"].append(f"{FIG_DIR_NAME}/{out_name}")
+            append_log(logs, f"题图裁剪成功：{FIG_DIR_NAME}/{out_name}，0-1000 bbox={selected_bbox}")
+        except Exception as exc:
+            append_log(logs, f"题图裁剪失败：题目 {display_id}，bbox={refined_bbox or bbox}，错误={exc}")
 
 
 def process_job(config, question_files=None, answer_files=None, job_id=None, saved_questions=None, saved_answers=None, data_source=""):
@@ -1309,8 +1615,8 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
     fig_dir.mkdir(parents=True, exist_ok=True)
     answer_dir.mkdir(parents=True, exist_ok=True)
 
+    question_pages = []
     question_items = []
-    question_indexes_by_source = {}
     answer_items = []
     logs = JobLogs(job_id, job_dir)
 
@@ -1318,18 +1624,43 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
     saved_answers = saved_answers if saved_answers is not None else save_uploads(answer_files or [], upload_dir / "answers")
 
     try:
+        total_started = time.perf_counter()
+        timings = {
+            "question_recognition": 0.0,
+            "figure_refinement": 0.0,
+            "answer_recognition": 0.0,
+        }
         append_log(logs, "开始处理任务")
+        append_log(
+            logs,
+            f"并发配置：问题识别 {QUESTION_PAGE_CONCURRENCY}，"
+            f"题图定位 {FIGURE_CONCURRENCY}，答案识别 {ANSWER_PAGE_CONCURRENCY}",
+        )
         for image_path in saved_questions:
-            append_log(logs, f"处理问题图片：{image_path.name}")
-            raw = call_vlm(config, image_path, QUESTION_PROMPT)
+            append_log(logs, f"提交问题识别：{image_path.name}")
+        stage_started = time.perf_counter()
+        question_results = run_indexed_concurrently(
+            saved_questions,
+            QUESTION_PAGE_CONCURRENCY,
+            lambda _, image_path: recognize_page(
+                config,
+                image_path,
+                QUESTION_PROMPT,
+                add_pixel_hint=False,
+            ),
+        )
+        timings["question_recognition"] += time.perf_counter() - stage_started
+
+        for page_index, (image_path, result) in enumerate(zip(saved_questions, question_results)):
+            raw, request_elapsed = result
             write_model_output(job_dir, f"question-{image_path.stem}", raw)
-            append_log(logs, f"问题图片模型返回：{image_path.name}")
+            append_log(logs, f"问题图片模型返回：{image_path.name}，请求耗时 {request_elapsed:.1f} 秒")
             parsed = parse_json_text(raw)
+            page_fragments = []
             for q in extract_items(parsed, "questions"):
                 if not isinstance(q, dict):
                     continue
                 source_id = str(first_value(q, ["id", "number", "qid", "question_id", "题号", "编号", "题目编号"])).strip()
-                normalized_source_id = normalize_extraction_id(source_id)
                 question_text = str(first_value(q, ["question", "content", "text", "stem", "题目", "问题"])).strip()
                 figures = first_value(q, ["figures", "images", "diagrams", "bboxes", "题图"], default=[])
                 if isinstance(figures, dict):
@@ -1337,26 +1668,23 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
                 if not source_id and not question_text and not figures:
                     continue
 
-                rec = None
-                if normalized_source_id and question_indexes_by_source.get(normalized_source_id):
-                    candidate = question_items[question_indexes_by_source[normalized_source_id][-1]]
-                    if not question_text or not candidate.get("question"):
-                        rec = candidate
-                if rec is None:
-                    rec = {
-                        "_source_id": source_id,
-                        "question": "",
-                        "answer": "",
-                        "figures": [],
-                        "answers": [],
-                        "source": data_source,
-                    }
-                    question_items.append(rec)
-                    if normalized_source_id:
-                        question_indexes_by_source.setdefault(normalized_source_id, []).append(len(question_items) - 1)
-
-                if question_text:
-                    rec["question"] = question_text
+                continuation_value = first_value(
+                    q,
+                    ["continuation_of_previous", "continues_previous", "is_continuation", "承接上一页"],
+                    default=False,
+                )
+                rec = {
+                    "_source_id": source_id,
+                    "_page_index": page_index,
+                    "_continues_previous": continuation_value is True
+                    or str(continuation_value).strip().lower() in {"true", "1", "yes", "是"},
+                    "question": question_text,
+                    "answer": "",
+                    "figures": [],
+                    "_figure_candidates": [],
+                    "answers": [],
+                    "source": data_source,
+                }
                 q_type = str(first_value(q, ["type", "question_type", "题目类型"], default="")).strip()
                 q_difficulty = str(first_value(q, ["difficulty", "level", "题目难度", "难度"], default="")).strip()
                 if q_type:
@@ -1367,31 +1695,53 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
                     bbox = first_value(fig, ["bbox_2d", "bbox", "box", "坐标"], default=None) if isinstance(fig, dict) else fig
                     if not bbox:
                         continue
-                    refined_bbox = None
-                    display_id = str(question_items.index(rec) + 1)
-                    figure_label = source_id or display_id
-                    try:
-                        refined_bbox = refine_figure_bbox(config, image_path, figure_label, job_dir, logs)
-                    except Exception as exc:
-                        append_log(logs, f"题图二次定位异常：题目 {display_id}，错误={exc}")
-                    suffix = "" if not rec["figures"] else f"_{len(rec['figures']) + 1}"
-                    out_name = f"{display_id}{suffix}.jpg"
-                    out_path = fig_dir / out_name
-                    try:
-                        if refined_bbox:
-                            crop_region(image_path, expand_figure_bbox(refined_bbox), out_path, ref_size=(1000, 1000))
-                        else:
-                            crop_figure(image_path, bbox, out_path)
-                        rec["figures"].append(f"{FIG_DIR_NAME}/{out_name}")
-                        append_log(logs, f"题图裁剪成功：{FIG_DIR_NAME}/{out_name}")
-                    except Exception as exc:
-                        append_log(logs, f"题图裁剪失败：题目 {display_id}，bbox={refined_bbox or bbox}，错误={exc}")
+                    description = first_value(
+                        fig,
+                        ["description", "caption", "label", "图注", "说明"],
+                        default="",
+                    ) if isinstance(fig, dict) else ""
+                    rec["_figure_candidates"].append(
+                        {
+                            "image_path": image_path,
+                            "bbox": bbox,
+                            "description": str(description or "").strip(),
+                        }
+                    )
+                page_fragments.append(rec)
+            question_pages.append(page_fragments)
+            append_log(logs, f"问题子文件识别完成：{image_path.name}，识别片段 {len(page_fragments)} 个")
+
+        question_items = consolidate_question_pages(question_pages, logs)
+        append_log(logs, f"全部问题子文件合并完成：形成完整题目 {len(question_items)} 道")
+        crop_consolidated_question_figures(
+            config,
+            question_items,
+            data_source,
+            fig_dir,
+            job_dir,
+            logs,
+            timings,
+        )
 
         for image_path in saved_answers:
-            append_log(logs, f"处理答案图片：{image_path.name}")
-            raw = call_vlm(config, image_path, ANSWER_PROMPT)
+            append_log(logs, f"提交答案识别：{image_path.name}")
+        stage_started = time.perf_counter()
+        answer_results = run_indexed_concurrently(
+            saved_answers,
+            ANSWER_PAGE_CONCURRENCY,
+            lambda _, image_path: recognize_page(
+                config,
+                image_path,
+                ANSWER_PROMPT,
+                add_pixel_hint=True,
+            ),
+        )
+        timings["answer_recognition"] += time.perf_counter() - stage_started
+
+        for image_path, result in zip(saved_answers, answer_results):
+            raw, request_elapsed = result
             write_model_output(job_dir, f"answer-{image_path.stem}", raw)
-            append_log(logs, f"答案图片模型返回：{image_path.name}")
+            append_log(logs, f"答案图片模型返回：{image_path.name}，请求耗时 {request_elapsed:.1f} 秒")
             parsed = parse_json_text(raw)
             extracted_answers = extract_items(parsed, "answers")
             for ans in extracted_answers:
@@ -1415,10 +1765,22 @@ def process_job(config, question_files=None, answer_files=None, job_id=None, sav
             if data_source and not item.get("source"):
                 item["source"] = data_source
             item.pop("_source_id", None)
+            item.pop("_page_index", None)
+            item.pop("_continues_previous", None)
+            item.pop("_figure_candidates", None)
             records[str(index)] = item
         md_path = output_dir / "test_data.md"
         md_path.write_text(build_markdown(records), encoding="utf-8")
         append_log(logs, f"生成 Markdown：{md_path.relative_to(job_dir)}")
+        total_elapsed = time.perf_counter() - total_started
+        append_log(
+            logs,
+            "耗时统计："
+            f"问题识别 {timings['question_recognition']:.1f} 秒，"
+            f"题图定位 {timings['figure_refinement']:.1f} 秒，"
+            f"答案识别 {timings['answer_recognition']:.1f} 秒，"
+            f"任务总计 {total_elapsed:.1f} 秒",
+        )
         append_log(logs, "模型处理完成，等待人工校核")
     except Exception as exc:
         append_log(logs, f"任务失败：{exc}")
