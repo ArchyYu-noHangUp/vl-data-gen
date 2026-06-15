@@ -63,6 +63,9 @@ docker run -d `
   -p 8000:8000 `
   -e WEB_WORKERS=4 `
   -e WORKER_CONCURRENCY=12 `
+  -e QUESTION_PAGE_CONCURRENCY=2 `
+  -e FIGURE_CONCURRENCY=3 `
+  -e ANSWER_PAGE_CONCURRENCY=2 `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
@@ -84,11 +87,24 @@ docker run -d `
   -p 8000:8000 `
   -e WEB_WORKERS=8 `
   -e WORKER_CONCURRENCY=16 `
+  -e QUESTION_PAGE_CONCURRENCY=2 `
+  -e FIGURE_CONCURRENCY=3 `
+  -e ANSWER_PAGE_CONCURRENCY=2 `
   -v C:\vl-data-gen\runs:C:\app\runs `
   -v C:\vl-data-gen\data:C:\app\data `
   -v C:\vl-data-gen\logs:C:\app\logs `
   vl-data-gen:0.5.0-windows
 ```
+
+默认并发配置：
+
+- `WEB_WORKERS=4`：Web 服务进程数
+- `WORKER_CONCURRENCY=12`：后台数据处理 worker 数
+- `QUESTION_PAGE_CONCURRENCY=2`：单个任务的问题页识别并发数
+- `FIGURE_CONCURRENCY=3`：单个任务的题图定位并发数
+- `ANSWER_PAGE_CONCURRENCY=2`：单个任务的答案页识别并发数
+
+所有参数均可在 `docker run` 时通过 `-e` 修改。
 
 ## 常用命令
 

@@ -150,6 +150,9 @@ http://127.0.0.1:8000
 - `PORT`：Web 端口，默认 `8000`
 - `WEB_WORKERS`：Web 进程数，默认 `4`
 - `WORKER_CONCURRENCY`：worker 数，裸机默认 `4`，Windows 容器默认 `12`
+- `QUESTION_PAGE_CONCURRENCY`：单个任务的问题页识别并发数，默认 `2`
+- `FIGURE_CONCURRENCY`：单个任务的题图定位并发数，默认 `3`
+- `ANSWER_PAGE_CONCURRENCY`：单个任务的答案页识别并发数，默认 `2`
 - `VL_TEMP_FINALS`：临时校核结果目录，默认 `temp_final`
 
 示例：
@@ -158,6 +161,9 @@ http://127.0.0.1:8000
 $env:PORT="8080"
 $env:WEB_WORKERS="4"
 $env:WORKER_CONCURRENCY="8"
+$env:QUESTION_PAGE_CONCURRENCY="2"
+$env:FIGURE_CONCURRENCY="3"
+$env:ANSWER_PAGE_CONCURRENCY="2"
 powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 ```
 
