@@ -21,7 +21,7 @@ web_pid_by_port() {
 }
 
 worker_pid_by_name() {
-  pgrep -f "python3 -m vl_app.worker" | head -n 1
+  pgrep -f "^python3 -m vl_app\\.worker$" | head -n 1
 }
 
 WEB_PORT_PID="$(web_pid_by_port || true)"
@@ -44,7 +44,7 @@ if [[ -n "$WORKER_NAME_PID" ]]; then
 elif is_running "$WORKER_PID_FILE"; then
   echo "Worker 已在运行，PID: $(cat "$WORKER_PID_FILE")"
 else
-  nohup python3 -m vl_app.worker >>"$WORKER_LOG" 2>&1 &
+  nohup setsid python3 -m vl_app.worker >>"$WORKER_LOG" 2>&1 < /dev/null &
   echo "$!" >"$WORKER_PID_FILE"
   echo "Worker 已启动，PID: $(cat "$WORKER_PID_FILE")，日志: $WORKER_LOG"
 fi

@@ -34,9 +34,9 @@ def run_task(task):
             legacy.write_job_meta(job_id, owner)
         db.update_job_status(job_id, "completed")
         finish(task, "done")
-    except Exception:
+    except Exception as exc:
         append_error(job_id, traceback.format_exc())
-        db.update_job_status(job_id, "failed")
+        db.update_job_status(job_id, "failed", error=str(exc))
         finish(task, "failed")
 
 

@@ -34,28 +34,33 @@ function assetUrl(path) {
 function figureName(path) {
   const name = String(path || "").split("/").pop() || "";
   const stem = name.replace(/\.[^.]+$/, "");
-  return { stem, filename: `${stem}.jpg` };
+  return { stem, filename: name };
 }
 
 function questionWithFigureLinks(question, figures) {
-  const figureMap = new Map();
+  const figureNames = [];
   for (const figure of figures || []) {
     const item = figureName(figure);
     if (item.stem) {
-      figureMap.set(item.stem, item.filename);
+      figureNames.push(item.filename);
     }
   }
-  if (!question || !figureMap.size) {
+  if (!question) {
     return question;
   }
-  return question.replace(/题图(?!\!)\s*([0-9]+(?:[-－—][0-9]+)?)\s*/g, (match, rawRef) => {
-    const ref = rawRef.replace(/[－—]/g, "-");
-    const filename = figureMap.get(ref) || (figureMap.size === 1 ? figureMap.values().next().value : "");
-    if (!filename) {
-      return match;
-    }
-    return `题图![${ref}](${filename}) `;
-  });
+  const cleanQuestion = String(question)
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*!\[[^\]]*\]\([^)]+\)\s*$/.test(line))
+    .map((line) => line.replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1"))
+    .join("\n")
+    .trim();
+  if (!figureNames.length) {
+    return cleanQuestion;
+  }
+  const labels = Array.from(cleanQuestion.matchAll(/(?<!\[)(题图|图)\s*([0-9]+(?:[.\-－—][0-9]+)*)/g))
+    .map((match) => `${match[1]}${match[2]}`);
+  const indexes = figureNames.map((filename, index) => `![${labels[index] || `题图${index + 1}`}](${filename})`);
+  return `${cleanQuestion}\n${indexes.join("\n")}`;
 }
 
 function splitBlocks(markdown) {
@@ -291,7 +296,7 @@ function renderMetaFields(body, item) {
   renderLabeledField(grid, "题目难度", (label) => {
     renderSelectWithCustom(label, item, "difficulty", difficulties);
   });
-  renderLabeledField(grid, "题目来源", (label) => {
+  renderLabeledField(grid, "数据来源", (label) => {
     renderTextInput(label, item, "source");
   });
 
