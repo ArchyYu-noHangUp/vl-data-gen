@@ -6,6 +6,9 @@
 
 - `WEB_WORKERS=4`：Web 服务进程数
 - `WORKER_CONCURRENCY=12`：后台数据处理 worker 数
+- `QUESTION_PAGE_CONCURRENCY=2`：单个任务的问题页识别并发数
+- `FIGURE_CONCURRENCY=3`：单个任务的题图定位并发数
+- `ANSWER_PAGE_CONCURRENCY=2`：单个任务的答案页识别并发数
 - `PORT=8000`：容器内 Web 端口
 
 不传环境变量时使用上述默认值。
@@ -16,22 +19,22 @@
 
 ```bash
 cd /root/vl-data-gen
-docker build -t vl-data-gen:0.4.4 .
+docker build -t vl-data-gen:0.5.0 .
 ```
 
 ## 保存镜像文件
 
 ```bash
 mkdir -p docker_release
-docker save vl-data-gen:0.4.4 | gzip > docker_release/vl-data-gen-0.4.4.tar.gz
+docker save vl-data-gen:0.5.0 | gzip > docker_release/vl-data-gen-0.5.0.tar.gz
 ```
 
 生成后的默认镜像文件：
 
 ```text
-/root/vl-data-gen/docker_release/vl-data-gen-0.4.4.tar.gz
-大小：243M（254115813 字节）
-SHA256：d44a42065d0323031b3407e299dbc2b6ff06bbd555fe4994a67ea44013023f28
+/root/vl-data-gen/docker_release/vl-data-gen-0.5.0.tar.gz
+大小：247M（258731179 字节）
+SHA256：61678264f0e073cb51f50f6731d3a7c99cd9543ea76c51930bec3d8f61355d83
 ```
 
 ## 加载镜像
@@ -39,7 +42,7 @@ SHA256：d44a42065d0323031b3407e299dbc2b6ff06bbd555fe4994a67ea44013023f28
 在目标服务器执行：
 
 ```bash
-gzip -dc vl-data-gen-0.4.4.tar.gz | docker load
+gzip -dc vl-data-gen-0.5.0.tar.gz | docker load
 ```
 
 ## 单容器启动
@@ -54,7 +57,7 @@ docker run -d \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.4.4
+  vl-data-gen:0.5.0
 ```
 
 访问：
@@ -74,16 +77,20 @@ docker run -d \
   -p 8000:8000 \
   -e WEB_WORKERS=8 \
   -e WORKER_CONCURRENCY=16 \
+  -e QUESTION_PAGE_CONCURRENCY=2 \
+  -e FIGURE_CONCURRENCY=3 \
+  -e ANSWER_PAGE_CONCURRENCY=2 \
   -v /data/vl-data-gen/runs:/app/runs \
   -v /data/vl-data-gen/data:/app/data \
   -v /data/vl-data-gen/logs:/app/logs \
-  vl-data-gen:0.4.4
+  vl-data-gen:0.5.0
 ```
 
 建议范围：
 
 - 20 人以内使用：`WEB_WORKERS=4-8`
 - Qwen 算力充足：`WORKER_CONCURRENCY=12-16`
+- 单任务内部并发建议保持问题/题图/答案为 `2/3/2`
 - 如果上传图片很大或磁盘较慢，先使用默认值 `12`
 
 ## Docker Compose 启动
@@ -98,7 +105,9 @@ docker compose up -d --build
 修改并发：
 
 ```bash
-WEB_WORKERS=8 WORKER_CONCURRENCY=16 docker compose up -d --build
+WEB_WORKERS=8 WORKER_CONCURRENCY=16 \
+QUESTION_PAGE_CONCURRENCY=2 FIGURE_CONCURRENCY=3 ANSWER_PAGE_CONCURRENCY=2 \
+docker compose up -d --build
 ```
 
 ## 数据目录说明
@@ -155,8 +164,8 @@ docker start vl-data-gen
 已完成：
 
 - 当前机器已安装 Docker，可按本文命令完成镜像构建
-- 镜像标签：`vl-data-gen:0.4.4`
-- 镜像文件：`/root/vl-data-gen/docker_release/vl-data-gen-0.4.4.tar.gz`
+- 镜像标签：`vl-data-gen:0.5.0`
+- 镜像文件：`/root/vl-data-gen/docker_release/vl-data-gen-0.5.0.tar.gz`
 - Dockerfile 已配置默认并发参数
 - `docker/entrypoint.sh` 已支持通过环境变量修改并发
 - `.dockerignore` 已排除运行数据、日志、账号文件和 Git 元数据
